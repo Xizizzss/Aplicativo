@@ -30,6 +30,36 @@ import {
   Cell,
 } from "recharts";
 
+// ─── Logo ─────────────────────────────────────────────────────────────────────
+
+/** Ícone da logo Closet Pro — sacola com cabide, gradiente da marca. */
+function ClosetProIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="cpIconGradApp" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f4b8aa" />
+          <stop offset="45%" stopColor="#e8a090" />
+          <stop offset="100%" stopColor="#b87c6a" />
+        </linearGradient>
+      </defs>
+      <rect width="160" height="160" rx="36" fill="url(#cpIconGradApp)" />
+      <path
+        d="M52 68 C52 48 64 34 80 34 C96 34 108 48 108 68"
+        stroke="#fffaf7"
+        strokeWidth="6"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M40 68 H120 C126 68 130 72 130 78 L122 128 C121 134 116 138 110 138 H50 C44 138 39 134 38 128 L30 78 C30 72 34 68 40 68 Z"
+        fill="#fffaf7"
+      />
+      <circle cx="80" cy="100" r="6" fill="#b87c6a" />
+    </svg>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PageId = "login" | "home" | "estoque" | "lucro" | "clientes" | "vendas";
@@ -508,8 +538,8 @@ function HomePage({ onNavigate }: { onNavigate: (p: PageId) => void }) {
       <header className="px-6 sm:px-10 pt-8 pb-0 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
-              <ShoppingBag size={16} className="text-primary-foreground" />
+            <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0">
+              <ClosetProIcon size={32} />
             </div>
             <span className="text-xl font-bold text-foreground">Closet Pro</span>
           </div>

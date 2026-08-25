@@ -1,5 +1,58 @@
 import React, { useState } from "react";
-import { ShoppingBag, Lock, User, Eye, EyeOff, ArrowRight, Sparkles } from "lucide-react";
+import { Lock, User, Eye, EyeOff, ArrowRight, Sparkles } from "lucide-react";
+
+/** Ícone da logo Closet Pro — sacola com cabide, gradiente da marca. */
+function ClosetProIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="cpIconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f4b8aa" />
+          <stop offset="45%" stopColor="#e8a090" />
+          <stop offset="100%" stopColor="#b87c6a" />
+        </linearGradient>
+      </defs>
+      <rect width="160" height="160" rx="36" fill="url(#cpIconGrad)" />
+      <path
+        d="M52 68 C52 48 64 34 80 34 C96 34 108 48 108 68"
+        stroke="#fffaf7"
+        strokeWidth="6"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M40 68 H120 C126 68 130 72 130 78 L122 128 C121 134 116 138 110 138 H50 C44 138 39 134 38 128 L30 78 C30 72 34 68 40 68 Z"
+        fill="#fffaf7"
+      />
+      <circle cx="80" cy="100" r="6" fill="#b87c6a" />
+    </svg>
+  );
+}
+
+/** Ícone da logo em versão "vidro fosco", para usar sobre o gradiente colorido. */
+function ClosetProIconOnGlass({ size = 40 }: { size?: number }) {
+  return (
+    <div
+      className="rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30"
+      style={{ width: size, height: size }}
+    >
+      <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 160 160" fill="none">
+        <path
+          d="M52 68 C52 48 64 34 80 34 C96 34 108 48 108 68"
+          stroke="#ffffff"
+          strokeWidth="7"
+          strokeLinecap="round"
+          fill="none"
+        />
+        <path
+          d="M40 68 H120 C126 68 130 72 130 78 L122 128 C121 134 116 138 110 138 H50 C44 138 39 134 38 128 L30 78 C30 72 34 68 40 68 Z"
+          fill="#ffffff"
+        />
+        <circle cx="80" cy="100" r="7" fill="#e8a090" />
+      </svg>
+    </div>
+  );
+}
 
 export default function Login({ onLogin }: { onLogin: () => void }) {
   const [usuario, setUsuario] = useState("");
@@ -41,9 +94,7 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
         <div className="absolute bottom-0 left-0 w-96 h-96 rounded-full bg-[#8a4a3a]/20 blur-3xl" />
 
         <div className="relative z-10 flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
-            <ShoppingBag size={20} className="text-white" />
-          </div>
+          <ClosetProIconOnGlass size={40} />
           <span className="text-xl font-bold text-white">Closet Pro</span>
         </div>
 
@@ -71,8 +122,8 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
         <div className="w-full max-w-sm">
           {/* Logo mobile (só aparece sem o painel lateral) */}
           <div className="flex lg:hidden flex-col items-center mb-8">
-            <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center mb-3 shadow-lg shadow-primary/20">
-              <ShoppingBag size={22} className="text-primary-foreground" />
+            <div className="mb-3 rounded-xl shadow-lg overflow-hidden" style={{ width: 48, height: 48 }}>
+              <ClosetProIcon size={48} />
             </div>
             <h1 className="text-2xl font-bold text-foreground">Closet Pro</h1>
           </div>
