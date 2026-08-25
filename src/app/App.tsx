@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Login from "./components/Login";
 
 import { listarProdutos, adicionarProdutos } from "../db/produtos";
 
@@ -31,7 +32,7 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PageId = "home" | "estoque" | "lucro" | "clientes" | "vendas";
+type PageId = "login" | "home" | "estoque" | "lucro" | "clientes" | "vendas";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -597,12 +598,13 @@ function HomePage({ onNavigate }: { onNavigate: (p: PageId) => void }) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [page, setPage] = useState<PageId>("home");
+  const [page, setPage] = useState<PageId>("login");
 
   const goHome = () => setPage("home");
 
   return (
     <>
+      {page === "login" && <Login onLogin={goHome} />}
       {page === "home" && <HomePage onNavigate={setPage} />}
       {page === "estoque" && <EstoquePage onBack={goHome} />}
       {page === "lucro" && <LucroPage onBack={goHome} />}
