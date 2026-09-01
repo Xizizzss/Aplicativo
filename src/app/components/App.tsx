@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import Login from "./components/Login";
+import Login from "./Login";
 
-import { listarProdutos, adicionarProdutos } from "../db/produtos";
+import { listarProdutos, adicionarProdutos } from "../../db/produtos";
 
-import type { Produto } from "../db/database";
+import type { Produto } from "../../db/database";
 
 import {
   Package,
@@ -15,6 +15,14 @@ import {
   Search,
   ChevronUp,
   ChevronDown,
+  UserPlus,
+  Hash,
+  User,
+  Save,
+  CheckCircle2,
+  Pencil,
+  Trash2,
+  X,
 } from "lucide-react";
 import {
   BarChart,
@@ -62,7 +70,7 @@ function ClosetProIcon({ size = 20 }: { size?: number }) {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PageId = "login" | "home" | "estoque" | "lucro" | "clientes" | "vendas";
+type PageId = "login" | "home" | "estoque" | "lucro" | "clientes" | "vendas" | "cadastroCliente";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -86,7 +94,7 @@ const salesMonths = [
   { mes: "Ago", receita: 6100, lucro: 2480, vendas: 107 },
 ];
 
-const clients = [
+const initialClients = [
   { id: 1, nome: "Ana Beatriz Souza", email: "ana.beatriz@gmail.com", cidade: "São Paulo", compras: 7, total: 1248.3, ultima: "02/08/2026" },
   { id: 2, nome: "Camila Ferreira", email: "camilafer@hotmail.com", cidade: "Curitiba", compras: 4, total: 689.6, ultima: "29/07/2026" },
   { id: 3, nome: "Fernanda Lima", email: "ferlima@gmail.com", cidade: "Rio de Janeiro", compras: 11, total: 2340.0, ultima: "01/08/2026" },
@@ -138,11 +146,13 @@ function PageShell({
   subtitle,
   onBack,
   children,
+  headerAction,
 }: {
   title: string;
   subtitle: string;
   onBack: () => void;
   children: React.ReactNode;
+  headerAction?: React.ReactNode;
 }) {
   return (
     <div className="min-h-screen bg-background" style={{ fontFamily: "'Nunito', sans-serif" }}>
@@ -156,10 +166,11 @@ function PageShell({
           <span className="hidden sm:inline">Início</span>
         </button>
         <div className="w-px h-5 bg-border" />
-        <div>
+        <div className="flex-1">
           <h1 className="text-base font-bold text-foreground leading-tight">{title}</h1>
           <p className="text-xs text-muted-foreground hidden sm:block">{subtitle}</p>
         </div>
+        {headerAction}
       </header>
 
       <main className="px-4 sm:px-8 py-6 max-w-5xl mx-auto">{children}</main>
@@ -356,20 +367,202 @@ function LucroPage({ onBack }: { onBack: () => void }) {
   );
 }
 
+// ─── Modal: Editar Cliente ──────────────────────────────────────────────────
+
+function EditarClienteModal({
+  cliente,
+  onClose,
+  onSalvar,
+}: {
+  cliente: typeof initialClients[number];
+  onClose: () => void;
+  onSalvar: (id: number, dados: { nome: string; email: string; cidade: string }) => void;
+}) {
+  const [nome, setNome] = useState(cliente.nome);
+  const [email, setEmail] = useState(cliente.email);
+  const [cidade, setCidade] = useState(cliente.cidade);
+
+  const handleSalvar = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSalvar(cliente.id, { nome, email, cidade });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+      <div className="bg-card rounded-2xl border border-border shadow-xl w-full max-w-sm p-6 relative">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <X size={18} />
+        </button>
+
+        <h2 className="text-lg font-bold text-foreground mb-1">Editar cliente</h2>
+        <p className="text-xs text-muted-foreground mb-5">Atualize os dados abaixo.</p>
+
+        <form onSubmit={handleSalvar} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Nome
+            </label>
+            <div className="relative mt-1.5 group">
+              <User
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors"
+              />
+              <input
+                className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              E-mail
+            </label>
+            <div className="relative mt-1.5 group">
+              <Hash
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors"
+              />
+              <input
+                type="email"
+                className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Cidade
+            </label>
+            <input
+              className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              value={cidade}
+              onChange={(e) => setCidade(e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={!nome}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white
+                bg-gradient-to-r from-[#e8a090] to-[#b87c6a]
+                hover:from-[#e29483] hover:to-[#a86e5c]
+                transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Salvar
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-foreground
+                border border-border bg-background hover:bg-muted transition-all"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal: Confirmar Exclusão ──────────────────────────────────────────────
+
+function ConfirmarExclusaoModal({
+  nome,
+  onCancel,
+  onConfirm,
+}: {
+  nome: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+      <div className="bg-card rounded-2xl border border-border shadow-xl w-full max-w-sm p-6">
+        <div className="w-11 h-11 rounded-full bg-red-100 flex items-center justify-center mb-4">
+          <Trash2 size={18} className="text-red-500" />
+        </div>
+        <h2 className="text-lg font-bold text-foreground mb-1">Excluir cliente</h2>
+        <p className="text-sm text-muted-foreground mb-5">
+          Tem certeza que deseja excluir <span className="font-semibold text-foreground">{nome}</span>? Essa ação não pode ser desfeita.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white bg-red-500 hover:bg-red-600 transition-all"
+          >
+            Excluir
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-foreground
+              border border-border bg-background hover:bg-muted transition-all"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page: Clientes ───────────────────────────────────────────────────────────
 
-function ClientesPage({ onBack }: { onBack: () => void }) {
+function ClientesPage({
+  onBack,
+  onNovoCliente,
+  clients,
+  onEditar,
+  onExcluir,
+}: {
+  onBack: () => void;
+  onNovoCliente: () => void;
+  clients: typeof initialClients;
+  onEditar: (id: number, dados: { nome: string; email: string; cidade: string }) => void;
+  onExcluir: (id: number) => void;
+}) {
   const [search, setSearch] = useState("");
+  const [editando, setEditando] = useState<typeof initialClients[number] | null>(null);
+  const [excluindo, setExcluindo] = useState<typeof initialClients[number] | null>(null);
+
   const filtered = clients.filter(
     (c) =>
       c.nome.toLowerCase().includes(search.toLowerCase()) ||
       c.cidade.toLowerCase().includes(search.toLowerCase())
   );
   const total = clients.reduce((s, c) => s + c.total, 0);
-  const topCliente = [...clients].sort((a, b) => b.total - a.total)[0];
+  const topCliente = clients.length ? [...clients].sort((a, b) => b.total - a.total)[0] : null;
 
   return (
-    <PageShell title="Clientes" subtitle="Histórico e base de compradores" onBack={onBack}>
+    <PageShell
+      title="Clientes"
+      subtitle="Histórico e base de compradores"
+      onBack={onBack}
+      headerAction={
+        <button
+          onClick={onNovoCliente}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white
+            bg-gradient-to-r from-[#e8a090] to-[#b87c6a] hover:from-[#e29483] hover:to-[#a86e5c]
+            shadow-sm transition-all shrink-0"
+        >
+          <UserPlus size={14} />
+          <span className="hidden sm:inline">Novo cliente</span>
+        </button>
+      }
+    >
       <div className="space-y-5">
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-card rounded-xl border border-border p-4 text-center">
@@ -381,19 +574,21 @@ function ClientesPage({ onBack }: { onBack: () => void }) {
             <p className="text-xs text-muted-foreground mt-0.5">ticket médio</p>
           </div>
           <div className="bg-card rounded-xl border border-border p-4 text-center">
-            <p className="text-xl font-bold text-primary">{topCliente.nome.split(" ")[0]}</p>
+            <p className="text-xl font-bold text-primary">{topCliente ? topCliente.nome.split(" ")[0] : "—"}</p>
             <p className="text-xs text-muted-foreground mt-0.5">top cliente</p>
           </div>
         </div>
 
-        <div className="relative max-w-xs">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-border bg-card focus:outline-none focus:ring-2 focus:ring-ring/40"
-            placeholder="Buscar por nome ou cidade…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-xs">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-border bg-card focus:outline-none focus:ring-2 focus:ring-ring/40"
+              placeholder="Buscar por nome ou cidade…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -406,6 +601,7 @@ function ClientesPage({ onBack }: { onBack: () => void }) {
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Compras</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Total gasto</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Última compra</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -426,12 +622,201 @@ function ClientesPage({ onBack }: { onBack: () => void }) {
                     <td className="px-4 py-3 text-right font-mono">{c.compras}</td>
                     <td className="px-4 py-3 text-right font-mono hidden sm:table-cell">{fmt(c.total)}</td>
                     <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{c.ultima}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => setEditando(c)}
+                          title="Editar cliente"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground
+                            hover:text-primary hover:bg-secondary transition-colors"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => setExcluindo(c)}
+                          title="Excluir cliente"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground
+                            hover:text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Nenhum cliente encontrado.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
+      </div>
+
+      {editando && (
+        <EditarClienteModal
+          cliente={editando}
+          onClose={() => setEditando(null)}
+          onSalvar={(id, dados) => onEditar(id, dados)}
+        />
+      )}
+
+      {excluindo && (
+        <ConfirmarExclusaoModal
+          nome={excluindo.nome}
+          onCancel={() => setExcluindo(null)}
+          onConfirm={() => {
+            onExcluir(excluindo.id);
+            setExcluindo(null);
+          }}
+        />
+      )}
+    </PageShell>
+  );
+}
+
+// ─── Page: Cadastro de Cliente ─────────────────────────────────────────────────
+
+function CadastroClientePage({
+  onBack,
+  onSalvar,
+}: {
+  onBack: () => void;
+  onSalvar: (nome: string, email: string, cidade: string) => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [email, setEmail] = useState("");
+  const [cidade, setCidade] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+
+  const handleGravar = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSalvando(true);
+    setSalvo(false);
+
+    setTimeout(() => {
+      setSalvando(false);
+      setSalvo(true);
+      onSalvar(nome, email, cidade || "—");
+      setNome("");
+      setEmail("");
+      setCidade("");
+    }, 500);
+  };
+
+  return (
+    <PageShell title="Cadastro de clientes" subtitle="Adicionar novo cliente" onBack={onBack}>
+      <div className="max-w-md">
+        <form onSubmit={handleGravar} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Nome
+            </label>
+            <div className="relative mt-1.5 group">
+              <User
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors"
+              />
+              <input
+                className="w-full pl-10 pr-4 py-3 text-sm rounded-xl border border-border bg-card
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                  transition-all placeholder:text-muted-foreground/60"
+                placeholder="nome completo"
+                value={nome}
+                onChange={(e) => {
+                  setNome(e.target.value);
+                  setSalvo(false);
+                }}
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              E-mail
+            </label>
+            <div className="relative mt-1.5 group">
+              <Hash
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors"
+              />
+              <input
+                type="email"
+                className="w-full pl-10 pr-4 py-3 text-sm rounded-xl border border-border bg-card
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                  transition-all placeholder:text-muted-foreground/60"
+                placeholder="email@exemplo.com"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setSalvo(false);
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Cidade
+            </label>
+            <div className="relative mt-1.5 group">
+              <input
+                className="w-full pl-4 pr-4 py-3 text-sm rounded-xl border border-border bg-card
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                  transition-all placeholder:text-muted-foreground/60"
+                placeholder="cidade"
+                value={cidade}
+                onChange={(e) => {
+                  setCidade(e.target.value);
+                  setSalvo(false);
+                }}
+              />
+            </div>
+          </div>
+
+          {salvo && (
+            <div className="px-3 py-2 rounded-lg bg-green-50 border border-green-100 flex items-center gap-2">
+              <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+              <p className="text-xs text-green-700 font-medium">Cliente cadastrado com sucesso.</p>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={salvando || !nome}
+              className="flex-1 py-3 rounded-xl font-semibold text-sm text-white
+                bg-gradient-to-r from-[#e8a090] to-[#b87c6a]
+                hover:from-[#e29483] hover:to-[#a86e5c]
+                shadow-lg shadow-[#e8a090]/30
+                transition-all flex items-center justify-center gap-2
+                disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {salvando ? (
+                "Gravando..."
+              ) : (
+                <>
+                  <Save size={16} />
+                  Gravar
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex-1 py-3 rounded-xl font-semibold text-sm text-foreground
+                border border-border bg-card hover:bg-muted transition-all"
+            >
+              Voltar
+            </button>
+          </div>
+        </form>
       </div>
     </PageShell>
   );
@@ -525,7 +910,7 @@ const navButtons: { id: PageId; label: string; icon: React.FC<{ size?: number; c
   { id: "vendas", label: "Vendas", icon: ShoppingBag, desc: "Histórico de pedidos" },
 ];
 
-function HomePage({ onNavigate }: { onNavigate: (p: PageId) => void }) {
+function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => void; totalClientes: number }) {
   const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
   const totalLucro = salesMonths.reduce((s, d) => s + d.lucro, 0);
 
@@ -590,7 +975,7 @@ function HomePage({ onNavigate }: { onNavigate: (p: PageId) => void }) {
           </div>
           <div className="bg-card rounded-2xl border border-border p-4">
             <p className="text-xs text-muted-foreground">Clientes</p>
-            <p className="text-lg font-bold text-foreground mt-0.5">{clients.length}</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{totalClientes}</p>
           </div>
           <div className="bg-card rounded-2xl border border-border p-4">
             <p className="text-xs text-muted-foreground">Produtos</p>
@@ -629,16 +1014,52 @@ function HomePage({ onNavigate }: { onNavigate: (p: PageId) => void }) {
 
 export default function App() {
   const [page, setPage] = useState<PageId>("login");
+  const [clients, setClients] = useState(initialClients);
 
   const goHome = () => setPage("home");
+  const goClientes = () => setPage("clientes");
+
+  const handleSalvarCliente = (nome: string, email: string, cidade: string) => {
+    setClients((prev) => [
+      ...prev,
+      {
+        id: prev.length ? Math.max(...prev.map((c) => c.id)) + 1 : 1,
+        nome,
+        email,
+        cidade,
+        compras: 0,
+        total: 0,
+        ultima: "—",
+      },
+    ]);
+  };
+
+  const handleEditarCliente = (id: number, dados: { nome: string; email: string; cidade: string }) => {
+    setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...dados } : c)));
+  };
+
+  const handleExcluirCliente = (id: number) => {
+    setClients((prev) => prev.filter((c) => c.id !== id));
+  };
 
   return (
     <>
       {page === "login" && <Login onLogin={goHome} />}
-      {page === "home" && <HomePage onNavigate={setPage} />}
+      {page === "home" && <HomePage onNavigate={setPage} totalClientes={clients.length} />}
       {page === "estoque" && <EstoquePage onBack={goHome} />}
       {page === "lucro" && <LucroPage onBack={goHome} />}
-      {page === "clientes" && <ClientesPage onBack={goHome} />}
+      {page === "clientes" && (
+        <ClientesPage
+          onBack={goHome}
+          onNovoCliente={() => setPage("cadastroCliente")}
+          clients={clients}
+          onEditar={handleEditarCliente}
+          onExcluir={handleExcluirCliente}
+        />
+      )}
+      {page === "cadastroCliente" && (
+        <CadastroClientePage onBack={goClientes} onSalvar={handleSalvarCliente} />
+      )}
       {page === "vendas" && <VendasPage onBack={goHome} />}
     </>
   );
