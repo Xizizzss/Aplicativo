@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import Login from "./Login";
+import CadastroProdutoPage from "./CadastroProdutoPage";
 
-import { listarProdutos, adicionarProdutos } from "../../db/produtos";
-
-import type { Produto } from "../../db/database";
+import { listarProdutos, adicionarProdutos, atualizarProduto, excluirProduto, type Produto } from "../../db/produtos";
+import { listarClientes, adicionarCliente, atualizarCliente, excluirCliente, type Cliente } from "../../db/clientes";
+import { listarVendas, type Venda } from "../../db/vendas";
 
 import {
   Package,
@@ -23,6 +24,7 @@ import {
   Pencil,
   Trash2,
   X,
+  Plus,
 } from "lucide-react";
 import {
   BarChart,
@@ -40,7 +42,6 @@ import {
 
 // ─── Logo ─────────────────────────────────────────────────────────────────────
 
-/** Ícone da logo Closet Pro — sacola com cabide, gradiente da marca. */
 function ClosetProIcon({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -70,20 +71,18 @@ function ClosetProIcon({ size = 20 }: { size?: number }) {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PageId = "login" | "home" | "estoque" | "lucro" | "clientes" | "vendas" | "cadastroCliente";
+type PageId =
+  | "login"
+  | "home"
+  | "estoque"
+  | "lucro"
+  | "clientes"
+  | "vendas"
+  | "cadastroCliente"
+  | "cadastroProduto";
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
-
-const products = [
-  { id: 1, nome: "Blusa Linho Rosa", categoria: "Blusas", preco: 89.9, custo: 38.0, estoque: 14, vendidos: 42 },
-  { id: 2, nome: "Calça Wide Leg Bege", categoria: "Calças", preco: 159.9, custo: 68.0, estoque: 3, vendidos: 27 },
-  { id: 3, nome: "Vestido Midi Floral", categoria: "Vestidos", preco: 219.9, custo: 92.0, estoque: 8, vendidos: 35 },
-  { id: 4, nome: "Cropped Tricot Off", categoria: "Blusas", preco: 119.9, custo: 51.0, estoque: 0, vendidos: 61 },
-  { id: 5, nome: "Saia Plissada Lilás", categoria: "Saias", preco: 139.9, custo: 58.0, estoque: 5, vendidos: 19 },
-  { id: 6, nome: "Blazer Oversized Nude", categoria: "Blazers", preco: 289.9, custo: 128.0, estoque: 6, vendidos: 12 },
-  { id: 7, nome: "Conjunto Linho Terracota", categoria: "Conjuntos", preco: 349.9, custo: 145.0, estoque: 2, vendidos: 8 },
-  { id: 8, nome: "Short Jeans Destroyed", categoria: "Shorts", preco: 109.9, custo: 44.0, estoque: 11, vendidos: 33 },
-];
+// ─── Data (ainda fictício — não vem do banco) ──────────────────────────────────
+// TODO: no futuro, calcular isso a partir de uma consulta agregada por mês na tabela "vendas"
 
 const salesMonths = [
   { mes: "Mar", receita: 3200, lucro: 1100, vendas: 58 },
@@ -92,26 +91,6 @@ const salesMonths = [
   { mes: "Jun", receita: 5200, lucro: 2050, vendas: 92 },
   { mes: "Jul", receita: 4800, lucro: 1890, vendas: 83 },
   { mes: "Ago", receita: 6100, lucro: 2480, vendas: 107 },
-];
-
-const initialClients = [
-  { id: 1, nome: "Ana Beatriz Souza", email: "ana.beatriz@gmail.com", cidade: "São Paulo", compras: 7, total: 1248.3, ultima: "02/08/2026" },
-  { id: 2, nome: "Camila Ferreira", email: "camilafer@hotmail.com", cidade: "Curitiba", compras: 4, total: 689.6, ultima: "29/07/2026" },
-  { id: 3, nome: "Fernanda Lima", email: "ferlima@gmail.com", cidade: "Rio de Janeiro", compras: 11, total: 2340.0, ultima: "01/08/2026" },
-  { id: 4, nome: "Juliana Carvalho", email: "jucarvalho@outlook.com", cidade: "Belo Horizonte", compras: 2, total: 459.8, ultima: "18/07/2026" },
-  { id: 5, nome: "Mariana Costa", email: "mari.costa@gmail.com", cidade: "Florianópolis", compras: 9, total: 1876.5, ultima: "03/08/2026" },
-  { id: 6, nome: "Patricia Mendes", email: "pati.mendes@gmail.com", cidade: "Salvador", compras: 3, total: 779.7, ultima: "27/07/2026" },
-  { id: 7, nome: "Renata Oliveira", email: "renataoliveira@gmail.com", cidade: "Recife", compras: 6, total: 1102.4, ultima: "31/07/2026" },
-];
-
-const recentSales = [
-  { id: 1, cliente: "Mariana Costa", produto: "Vestido Midi Floral", valor: 219.9, data: "03/08/2026", status: "Pago" },
-  { id: 2, cliente: "Ana Beatriz Souza", produto: "Blusa Linho Rosa", valor: 89.9, data: "02/08/2026", status: "Pago" },
-  { id: 3, cliente: "Fernanda Lima", produto: "Blazer Oversized Nude", valor: 289.9, data: "01/08/2026", status: "Pago" },
-  { id: 4, cliente: "Renata Oliveira", produto: "Calça Wide Leg Bege", valor: 159.9, data: "31/07/2026", status: "Pago" },
-  { id: 5, cliente: "Camila Ferreira", produto: "Short Jeans Destroyed", valor: 109.9, data: "29/07/2026", status: "Pago" },
-  { id: 6, cliente: "Patricia Mendes", produto: "Saia Plissada Lilás", valor: 139.9, data: "27/07/2026", status: "Pago" },
-  { id: 7, cliente: "Juliana Carvalho", produto: "Conjunto Linho Terracota", valor: 349.9, data: "18/07/2026", status: "Pendente" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -156,7 +135,6 @@ function PageShell({
 }) {
   return (
     <div className="min-h-screen bg-background" style={{ fontFamily: "'Nunito', sans-serif" }}>
-      {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm border-b border-border px-4 sm:px-8 py-4 flex items-center gap-3">
         <button
           onClick={onBack}
@@ -180,22 +158,69 @@ function PageShell({
 
 // ─── Page: Estoque ────────────────────────────────────────────────────────────
 
-function EstoquePage({ onBack }: { onBack: () => void }) {
+function EstoquePage({
+  onBack,
+  produtos,
+  onNovoProduto,
+  onEditar,
+  onExcluir,
+}: {
+  onBack: () => void;
+  produtos: Produto[];
+  onNovoProduto: () => void;
+  onEditar: (id: number, dados: {
+    nome: string;
+    categoria: string;
+    preco: number;
+    custo: number;
+    estoque: number;
+  }) => void;
+  onExcluir: (id: number) => void;
+}) {
   const [search, setSearch] = useState("");
-  const filtered = products.filter(
+  const [editando, setEditando] = useState<Produto | null>(null);
+  const [excluindo, setExcluindo] = useState<Produto | null>(null);
+  const [erroExclusao, setErroExclusao] = useState("");
+
+  const filtered = produtos.filter(
     (p) =>
       p.nome.toLowerCase().includes(search.toLowerCase()) ||
       p.categoria.toLowerCase().includes(search.toLowerCase())
   );
-  const semEstoque = products.filter((p) => p.estoque === 0).length;
-  const baixoEstoque = products.filter((p) => p.estoque > 0 && p.estoque <= 3).length;
+  const semEstoque = produtos.filter((p) => p.estoque === 0).length;
+  const baixoEstoque = produtos.filter((p) => p.estoque > 0 && p.estoque <= 3).length;
+
+  const handleExcluir = async (p: Produto) => {
+    try {
+      await onExcluir(p.id);
+      setExcluindo(null);
+      setErroExclusao("");
+    } catch (err: any) {
+      setErroExclusao(err.message || "Erro ao excluir produto.");
+    }
+  };
 
   return (
-    <PageShell title="Estoque" subtitle="Controle de peças disponíveis" onBack={onBack}>
+    <PageShell
+      title="Estoque"
+      subtitle="Controle de peças disponíveis"
+      onBack={onBack}
+      headerAction={
+        <button
+          onClick={onNovoProduto}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white
+            bg-gradient-to-r from-[#e8a090] to-[#b87c6a] hover:from-[#e29483] hover:to-[#a86e5c]
+            shadow-sm transition-all shrink-0"
+        >
+          <Plus size={14} />
+          <span className="hidden sm:inline">Novo produto</span>
+        </button>
+      }
+    >
       <div className="space-y-5">
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-card rounded-xl border border-border p-4 text-center">
-            <p className="text-2xl font-bold text-foreground">{products.length}</p>
+            <p className="text-2xl font-bold text-foreground">{produtos.length}</p>
             <p className="text-xs text-muted-foreground mt-0.5">produtos</p>
           </div>
           <div className="bg-card rounded-xl border border-border p-4 text-center">
@@ -220,6 +245,13 @@ function EstoquePage({ onBack }: { onBack: () => void }) {
           </div>
         </div>
 
+        {erroExclusao && (
+          <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2 max-w-md">
+            <AlertCircle size={14} className="text-red-600 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{erroExclusao}</p>
+          </div>
+        )}
+
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -227,10 +259,12 @@ function EstoquePage({ onBack }: { onBack: () => void }) {
                 <tr className="border-b border-border bg-muted/40">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Produto</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Categoria</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Fornecedor</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Preço</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Custo</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Margem</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estoque</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -240,6 +274,7 @@ function EstoquePage({ onBack }: { onBack: () => void }) {
                     <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3 font-medium text-foreground">{p.nome}</td>
                       <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{p.categoria}</td>
+                      <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{p.fornecedorNome ?? "—"}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm">{fmt(p.preco)}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-muted-foreground hidden md:table-cell">{fmt(p.custo)}</td>
                       <td className="px-4 py-3 text-right hidden md:table-cell">
@@ -248,28 +283,72 @@ function EstoquePage({ onBack }: { onBack: () => void }) {
                       <td className="px-4 py-3 text-center">
                         <StockBadge qty={p.estoque} />
                       </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setEditando(p)}
+                            title="Editar produto"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground
+                              hover:text-primary hover:bg-secondary transition-colors"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => { setExcluindo(p); setErroExclusao(""); }}
+                            title="Excluir produto"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground
+                              hover:text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Nenhum produto encontrado.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {editando && (
+        <EditarProdutoModal
+          produto={editando}
+          onClose={() => setEditando(null)}
+          onSalvar={(id, dados) => onEditar(id, dados)}
+        />
+      )}
+
+      {excluindo && (
+        <ConfirmarExclusaoModal
+          nome={excluindo.nome}
+          entidade="produto"
+          onCancel={() => setExcluindo(null)}
+          onConfirm={() => handleExcluir(excluindo)}
+        />
+      )}
     </PageShell>
   );
 }
 
 // ─── Page: Lucro ──────────────────────────────────────────────────────────────
 
-function LucroPage({ onBack }: { onBack: () => void }) {
+function LucroPage({ onBack, produtos }: { onBack: () => void; produtos: Produto[] }) {
   const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
   const totalLucro = salesMonths.reduce((s, d) => s + d.lucro, 0);
-  const margemMedia = ((totalLucro / totalReceita) * 100).toFixed(1);
+  const margemMedia = totalReceita > 0 ? ((totalLucro / totalReceita) * 100).toFixed(1) : "0.0";
 
-  const categorias = ["Blusas", "Calças", "Vestidos", "Saias", "Blazers", "Conjuntos", "Shorts"];
+  const categorias = Array.from(new Set(produtos.map((p) => p.categoria)));
   const pieData = categorias.map((cat) => {
-    const ps = products.filter((p) => p.categoria === cat);
+    const ps = produtos.filter((p) => p.categoria === cat);
     const lucro = ps.reduce((s, p) => s + (p.preco - p.custo) * p.vendidos, 0);
     return { name: cat, value: Math.round(lucro) };
   }).filter((d) => d.value > 0);
@@ -350,7 +429,7 @@ function LucroPage({ onBack }: { onBack: () => void }) {
 
             <div className="mt-3 border-t border-border pt-3">
               <p className="text-xs text-muted-foreground mb-2">Produto mais lucrativo</p>
-              {[...products]
+              {[...produtos]
                 .sort((a, b) => (b.preco - b.custo) * b.vendidos - (a.preco - a.custo) * a.vendidos)
                 .slice(0, 3)
                 .map((p, i) => (
@@ -367,6 +446,141 @@ function LucroPage({ onBack }: { onBack: () => void }) {
   );
 }
 
+// ─── Modal: Editar Produto ──────────────────────────────────────────────────
+
+function EditarProdutoModal({
+  produto,
+  onClose,
+  onSalvar,
+}: {
+  produto: Produto;
+  onClose: () => void;
+  onSalvar: (id: number, dados: {
+    nome: string;
+    categoria: string;
+    preco: number;
+    custo: number;
+    estoque: number;
+  }) => void;
+}) {
+  const [nome, setNome] = useState(produto.nome);
+  const [categoria, setCategoria] = useState(produto.categoria);
+  const [preco, setPreco] = useState(String(produto.preco));
+  const [custo, setCusto] = useState(String(produto.custo));
+  const [estoque, setEstoque] = useState(String(produto.estoque));
+
+  const handleSalvar = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSalvar(produto.id, {
+      nome,
+      categoria,
+      preco: Number(preco),
+      custo: Number(custo),
+      estoque: Number(estoque),
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+      <div className="bg-card rounded-2xl border border-border shadow-xl w-full max-w-sm p-6 relative">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <X size={18} />
+        </button>
+
+        <h2 className="text-lg font-bold text-foreground mb-1">Editar produto</h2>
+        <p className="text-xs text-muted-foreground mb-5">Atualize os dados abaixo.</p>
+
+        <form onSubmit={handleSalvar} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nome</label>
+            <input
+              className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Categoria</label>
+            <input
+              className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Preço</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                value={preco}
+                onChange={(e) => setPreco(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Custo</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                value={custo}
+                onChange={(e) => setCusto(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estoque</label>
+            <input
+              type="number"
+              min="0"
+              className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              value={estoque}
+              onChange={(e) => setEstoque(e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={!nome}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white
+                bg-gradient-to-r from-[#e8a090] to-[#b87c6a]
+                hover:from-[#e29483] hover:to-[#a86e5c]
+                transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Salvar
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-foreground
+                border border-border bg-background hover:bg-muted transition-all"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Modal: Editar Cliente ──────────────────────────────────────────────────
 
 function EditarClienteModal({
@@ -374,7 +588,7 @@ function EditarClienteModal({
   onClose,
   onSalvar,
 }: {
-  cliente: typeof initialClients[number];
+  cliente: Cliente;
   onClose: () => void;
   onSalvar: (id: number, dados: { nome: string; email: string; cidade: string }) => void;
 }) {
@@ -482,10 +696,12 @@ function EditarClienteModal({
 
 function ConfirmarExclusaoModal({
   nome,
+  entidade = "cliente",
   onCancel,
   onConfirm,
 }: {
   nome: string;
+  entidade?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -495,7 +711,7 @@ function ConfirmarExclusaoModal({
         <div className="w-11 h-11 rounded-full bg-red-100 flex items-center justify-center mb-4">
           <Trash2 size={18} className="text-red-500" />
         </div>
-        <h2 className="text-lg font-bold text-foreground mb-1">Excluir cliente</h2>
+        <h2 className="text-lg font-bold text-foreground mb-1">Excluir {entidade}</h2>
         <p className="text-sm text-muted-foreground mb-5">
           Tem certeza que deseja excluir <span className="font-semibold text-foreground">{nome}</span>? Essa ação não pode ser desfeita.
         </p>
@@ -530,21 +746,21 @@ function ClientesPage({
 }: {
   onBack: () => void;
   onNovoCliente: () => void;
-  clients: typeof initialClients;
+  clients: Cliente[];
   onEditar: (id: number, dados: { nome: string; email: string; cidade: string }) => void;
   onExcluir: (id: number) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [editando, setEditando] = useState<typeof initialClients[number] | null>(null);
-  const [excluindo, setExcluindo] = useState<typeof initialClients[number] | null>(null);
+  const [editando, setEditando] = useState<Cliente | null>(null);
+  const [excluindo, setExcluindo] = useState<Cliente | null>(null);
 
   const filtered = clients.filter(
     (c) =>
       c.nome.toLowerCase().includes(search.toLowerCase()) ||
       c.cidade.toLowerCase().includes(search.toLowerCase())
   );
-  const total = clients.reduce((s, c) => s + c.total, 0);
-  const topCliente = clients.length ? [...clients].sort((a, b) => b.total - a.total)[0] : null;
+  const total = clients.reduce((s, c) => s + Number(c.total), 0);
+  const topCliente = clients.length ? [...clients].sort((a, b) => Number(b.total) - Number(a.total))[0] : null;
 
   return (
     <PageShell
@@ -570,7 +786,7 @@ function ClientesPage({
             <p className="text-xs text-muted-foreground mt-0.5">clientes</p>
           </div>
           <div className="bg-card rounded-xl border border-border p-4 text-center">
-            <p className="text-xl font-bold text-foreground">{fmt(total / clients.length)}</p>
+            <p className="text-xl font-bold text-foreground">{clients.length ? fmt(total / clients.length) : fmt(0)}</p>
             <p className="text-xs text-muted-foreground mt-0.5">ticket médio</p>
           </div>
           <div className="bg-card rounded-xl border border-border p-4 text-center">
@@ -620,8 +836,8 @@ function ClientesPage({
                     </td>
                     <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{c.cidade}</td>
                     <td className="px-4 py-3 text-right font-mono">{c.compras}</td>
-                    <td className="px-4 py-3 text-right font-mono hidden sm:table-cell">{fmt(c.total)}</td>
-                    <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{c.ultima}</td>
+                    <td className="px-4 py-3 text-right font-mono hidden sm:table-cell">{fmt(Number(c.total))}</td>
+                    <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{c.ultima ?? "—"}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
@@ -668,6 +884,7 @@ function ClientesPage({
       {excluindo && (
         <ConfirmarExclusaoModal
           nome={excluindo.nome}
+          entidade="cliente"
           onCancel={() => setExcluindo(null)}
           onConfirm={() => {
             onExcluir(excluindo.id);
@@ -686,27 +903,34 @@ function CadastroClientePage({
   onSalvar,
 }: {
   onBack: () => void;
-  onSalvar: (nome: string, email: string, cidade: string) => void;
+  onSalvar: (nome: string, cpf: string, email: string, cidade: string) => void;
 }) {
   const [nome, setNome] = useState("");
+  const [cpf, setCpf] = useState("");
   const [email, setEmail] = useState("");
   const [cidade, setCidade] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState("");
 
-  const handleGravar = (e: React.FormEvent) => {
+  const handleGravar = async (e: React.FormEvent) => {
     e.preventDefault();
     setSalvando(true);
     setSalvo(false);
+    setErro("");
 
-    setTimeout(() => {
-      setSalvando(false);
+    try {
+      await onSalvar(nome, cpf, email, cidade || "—");
       setSalvo(true);
-      onSalvar(nome, email, cidade || "—");
       setNome("");
+      setCpf("");
       setEmail("");
       setCidade("");
-    }, 500);
+    } catch (err: any) {
+      setErro(err.message || "Erro ao gravar cliente.");
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -733,6 +957,29 @@ function CadastroClientePage({
                   setSalvo(false);
                 }}
                 autoFocus
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              CPF
+            </label>
+            <div className="relative mt-1.5 group">
+              <Hash
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors"
+              />
+              <input
+                className="w-full pl-10 pr-4 py-3 text-sm rounded-xl border border-border bg-card
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                  transition-all placeholder:text-muted-foreground/60"
+                placeholder="000.000.000-00"
+                value={cpf}
+                onChange={(e) => {
+                  setCpf(e.target.value);
+                  setSalvo(false);
+                }}
               />
             </div>
           </div>
@@ -787,10 +1034,17 @@ function CadastroClientePage({
             </div>
           )}
 
+          {erro && (
+            <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2">
+              <AlertCircle size={14} className="text-red-600 shrink-0" />
+              <p className="text-xs text-red-700 font-medium">{erro}</p>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="submit"
-              disabled={salvando || !nome}
+              disabled={salvando || !nome || !cpf}
               className="flex-1 py-3 rounded-xl font-semibold text-sm text-white
                 bg-gradient-to-r from-[#e8a090] to-[#b87c6a]
                 hover:from-[#e29483] hover:to-[#a86e5c]
@@ -824,10 +1078,10 @@ function CadastroClientePage({
 
 // ─── Page: Vendas ─────────────────────────────────────────────────────────────
 
-function VendasPage({ onBack }: { onBack: () => void }) {
+function VendasPage({ onBack, vendas }: { onBack: () => void; vendas: Venda[] }) {
   const totalVendas = salesMonths.reduce((s, d) => s + d.vendas, 0);
   const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
-  const ticketMedio = totalReceita / totalVendas;
+  const ticketMedio = totalVendas > 0 ? totalReceita / totalVendas : 0;
 
   return (
     <PageShell title="Vendas" subtitle="Histórico e desempenho de vendas" onBack={onBack}>
@@ -875,11 +1129,11 @@ function VendasPage({ onBack }: { onBack: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {recentSales.map((s) => (
+                {vendas.map((s) => (
                   <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium text-foreground">{s.cliente}</td>
                     <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{s.produto}</td>
-                    <td className="px-4 py-3 text-right font-mono">{fmt(s.valor)}</td>
+                    <td className="px-4 py-3 text-right font-mono">{fmt(Number(s.valorVenda))}</td>
                     <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{s.data}</td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -892,6 +1146,13 @@ function VendasPage({ onBack }: { onBack: () => void }) {
                     </td>
                   </tr>
                 ))}
+                {vendas.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Nenhuma venda registrada.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -910,7 +1171,15 @@ const navButtons: { id: PageId; label: string; icon: React.FC<{ size?: number; c
   { id: "vendas", label: "Vendas", icon: ShoppingBag, desc: "Histórico de pedidos" },
 ];
 
-function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => void; totalClientes: number }) {
+function HomePage({
+  onNavigate,
+  totalClientes,
+  totalProdutos,
+}: {
+  onNavigate: (p: PageId) => void;
+  totalClientes: number;
+  totalProdutos: number;
+}) {
   const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
   const totalLucro = salesMonths.reduce((s, d) => s + d.lucro, 0);
 
@@ -919,7 +1188,6 @@ function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => vo
       className="min-h-screen bg-background flex flex-col"
       style={{ fontFamily: "'Nunito', sans-serif" }}
     >
-      {/* Top bar */}
       <header className="px-6 sm:px-10 pt-8 pb-0 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -933,7 +1201,6 @@ function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => vo
         <p className="text-xs text-muted-foreground pt-2">Agosto 2026</p>
       </header>
 
-      {/* Welcome */}
       <section className="px-6 sm:px-10 pt-10 pb-6">
         <h2 className="text-3xl sm:text-4xl font-bold text-foreground leading-tight">
           Olá, bem-vinda! 👋
@@ -943,7 +1210,6 @@ function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => vo
         </p>
       </section>
 
-      {/* Navigation buttons */}
       <section className="px-6 sm:px-10">
         <div className="flex flex-wrap gap-3">
           {navButtons.map(({ id, label, icon: Icon }) => (
@@ -961,7 +1227,6 @@ function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => vo
         </div>
       </section>
 
-      {/* Summary cards */}
       <section className="px-6 sm:px-10 pt-8 pb-4">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-4">Resumo dos últimos 6 meses</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -979,12 +1244,11 @@ function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => vo
           </div>
           <div className="bg-card rounded-2xl border border-border p-4">
             <p className="text-xs text-muted-foreground">Produtos</p>
-            <p className="text-lg font-bold text-foreground mt-0.5">{products.length}</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{totalProdutos}</p>
           </div>
         </div>
       </section>
 
-      {/* Quick access cards */}
       <section className="px-6 sm:px-10 pt-4 pb-10 flex-1">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-4">Acesso rápido</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1014,40 +1278,104 @@ function HomePage({ onNavigate, totalClientes }: { onNavigate: (p: PageId) => vo
 
 export default function App() {
   const [page, setPage] = useState<PageId>("login");
-  const [clients, setClients] = useState(initialClients);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [clients, setClients] = useState<Cliente[]>([]);
+  const [vendas, setVendas] = useState<Venda[]>([]);
+  const [carregando, setCarregando] = useState(true);
+
+  const carregarDados = async () => {
+    setCarregando(true);
+    try {
+      const [prods, clis, vds] = await Promise.all([
+        listarProdutos(),
+        listarClientes(),
+        listarVendas(),
+      ]);
+      setProdutos(prods);
+      setClients(clis);
+      setVendas(vds);
+    } catch (err) {
+      console.error("Erro ao carregar dados do servidor:", err);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  useEffect(() => {
+    if (page !== "login") {
+      carregarDados();
+    }
+  }, [page === "login"]);
 
   const goHome = () => setPage("home");
   const goClientes = () => setPage("clientes");
+  const goEstoque = () => setPage("estoque");
 
-  const handleSalvarCliente = (nome: string, email: string, cidade: string) => {
-    setClients((prev) => [
-      ...prev,
-      {
-        id: prev.length ? Math.max(...prev.map((c) => c.id)) + 1 : 1,
-        nome,
-        email,
-        cidade,
-        compras: 0,
-        total: 0,
-        ultima: "—",
-      },
-    ]);
+  const handleSalvarCliente = async (nome: string, cpf: string, email: string, cidade: string) => {
+    const resultado = await adicionarCliente({ nome, cpf, email, cidade });
+    if (resultado.message && resultado.message.includes("já cadastrado")) {
+      throw new Error(resultado.message);
+    }
+    await carregarDados();
   };
 
-  const handleEditarCliente = (id: number, dados: { nome: string; email: string; cidade: string }) => {
+  const handleEditarCliente = async (id: number, dados: { nome: string; email: string; cidade: string }) => {
+    await atualizarCliente(id, dados);
     setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...dados } : c)));
   };
 
-  const handleExcluirCliente = (id: number) => {
+  const handleExcluirCliente = async (id: number) => {
+    await excluirCliente(id);
     setClients((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleSalvarProduto = async (dados: {
+    nome: string;
+    categoria: string;
+    preco: number;
+    custo: number;
+    estoque: number;
+    fornecedorId: number | null;
+  }) => {
+    const resultado = await adicionarProdutos(dados);
+    if (resultado.message && !resultado.id) {
+      throw new Error(resultado.message);
+    }
+    await carregarDados();
+  };
+
+  const handleEditarProduto = async (id: number, dados: {
+    nome: string;
+    categoria: string;
+    preco: number;
+    custo: number;
+    estoque: number;
+  }) => {
+    await atualizarProduto(id, dados);
+    setProdutos((prev) => prev.map((p) => (p.id === id ? { ...p, ...dados } : p)));
+  };
+
+  const handleExcluirProduto = async (id: number) => {
+    await excluirProduto(id);
+    setProdutos((prev) => prev.filter((p) => p.id !== id));
   };
 
   return (
     <>
       {page === "login" && <Login onLogin={goHome} />}
-      {page === "home" && <HomePage onNavigate={setPage} totalClientes={clients.length} />}
-      {page === "estoque" && <EstoquePage onBack={goHome} />}
-      {page === "lucro" && <LucroPage onBack={goHome} />}
+      {page === "home" && (
+        <HomePage onNavigate={setPage} totalClientes={clients.length} totalProdutos={produtos.length} />
+      )}
+      {page === "estoque" && (
+        <EstoquePage
+          onBack={goHome}
+          produtos={produtos}
+          onNovoProduto={() => setPage("cadastroProduto")}
+          onEditar={handleEditarProduto}
+          onExcluir={handleExcluirProduto}
+        />
+      )}
+      {page === "lucro" && <LucroPage onBack={goHome} produtos={produtos} />}
       {page === "clientes" && (
         <ClientesPage
           onBack={goHome}
@@ -1060,7 +1388,10 @@ export default function App() {
       {page === "cadastroCliente" && (
         <CadastroClientePage onBack={goClientes} onSalvar={handleSalvarCliente} />
       )}
-      {page === "vendas" && <VendasPage onBack={goHome} />}
+      {page === "cadastroProduto" && (
+        <CadastroProdutoPage onBack={goEstoque} onSalvar={handleSalvarProduto} />
+      )}
+      {page === "vendas" && <VendasPage onBack={goHome} vendas={vendas} />}
     </>
   );
 }

@@ -1,21 +1,54 @@
-import { db, type Produto } from "./database";
+import { API_URL } from "./api";
 
-// CREATE — adicionar produto novo
-export async function adicionarProdutos(produto: Omit<Produto, "id" | "vendidos">) {
-  return await db.produtos.add({ ...produto, vendidos: 0 });
+export interface Produto {
+  id: number;
+  nome: string;
+  categoria: string;
+  preco: number;
+  custo: number;
+  estoque: number;
+  vendidos: number;
+  fornecedorId: number | null;
+  fornecedorNome: string | null;
 }
 
-// READ — listar todos os produtos
-export async function listarProdutos() {
-  return await db.produtos.toArray();
+export async function listarProdutos(): Promise<Produto[]> {
+  const resposta = await fetch(`${API_URL}/produtos`);
+  return await resposta.json();
 }
 
-// UPDATE — atualizar um produto (ex: baixar estoque após venda)
-export async function atualizaProdutos(id: number, dados: Partial<Produto>) {
-  return await db.produtos.update(id, dados);
+export async function adicionarProdutos(dados: {
+  nome: string;
+  categoria: string;
+  preco: number;
+  custo: number;
+  estoque: number;
+  fornecedorId: number | null;
+}) {
+  const resposta = await fetch(`${API_URL}/produtos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dados),
+  });
+  const dado = await resposta.json();
+  if (!resposta.ok) throw new Error(dado.message || "Erro ao cadastrar produto.");
+  return dado;
 }
 
-// DELETE — remover produtos
-export async function excluirProdutos(id: number) {
-  return await db.produtos.delete(id);
+export async function atualizarProduto(id: number, dados: Partial<Produto>) {
+  const resposta = await fetch(`${API_URL}/produtos/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dados),
+  });
+  const dado = await resposta.json();
+  if (!resposta.ok) throw new Error(dado.message || "Erro ao atualizar produto.");
+  return dado;
+}
+
+export async function excluirProduto(id: number) {
+  const resposta = await fetch(`${API_URL}/produtos/${id}`, { method: "DELETE" });
+  const dado = await resposta.json();
+  if (!resposta.ok) throw new Error(dado.message || "Erro ao excluir produto.");
+  return dado;
 }
