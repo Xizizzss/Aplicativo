@@ -147,7 +147,6 @@ async function iniciarServidor() {
   });
 
   // ────────────── CLIENTES ──────────────
-  // (sem alterações — mantém igual ao seu original)
 
   app.post("/clientes", async (req, res) => {
     const { nome, cpf, email, cidade } = req.body;
@@ -225,12 +224,21 @@ async function iniciarServidor() {
 
   // ────────────── VENDAS ──────────────
 
-  // CREATE (agora verifica estoque antes de vender)
+  // CREATE (verifica estoque, registra parcelas e o histórico das já pagas)
   app.post("/vendas", async (req, res) => {
     const { produtoId, clienteId, quantidade, valorVenda, data, status } = req.body;
     if (!produtoId || !clienteId || !quantidade || valorVenda == null || !data) {
       return res.status(400).json({ message: "Campos obrigatórios não preenchidos!" });
     }
+
+    const parcelas = Math.max(1, Number(req.body.parcelas) || 1);
+    const pagasInformadas =
+      req.body.parcelasPagas != null
+        ? Number(req.body.parcelasPagas)
+        : status === "Pago" ? parcelas : 0;
+    const parcelasPagas = Math.min(Math.max(0, pagasInformadas || 0), parcelas);
+    const statusFinal = parcelasPagas >= parcelas ? "Pago" : "Pendente";
+
     try {
       const [produtoRows]: any = await db.query(
         "SELECT estoque FROM produtos WHERE id = ?",
@@ -244,14 +252,22 @@ async function iniciarServidor() {
       }
 
       const [result]: any = await db.query(
-        "INSERT INTO vendas (produtoId, clienteId, quantidade, valorVenda, data, status) VALUES (?, ?, ?, ?, ?, ?)",
-        [produtoId, clienteId, quantidade, valorVenda, data, status || "Pendente"]
+        "INSERT INTO vendas (produtoId, clienteId, quantidade, valorVenda, data, status, parcelas, parcelasPagas) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [produtoId, clienteId, quantidade, valorVenda, data, statusFinal, parcelas, parcelasPagas]
       );
 
       await db.query(
         "UPDATE produtos SET estoque = estoque - ?, vendidos = vendidos + ? WHERE id = ?",
         [quantidade, quantidade, produtoId]
       );
+
+      // Parcelas já pagas no ato da venda entram no histórico (alimenta o lucro)
+      if (parcelasPagas > 0) {
+        await db.query(
+          "INSERT INTO historico_parcelas (vendaId, parcelasAntes, parcelasDepois) VALUES (?, 0, ?)",
+          [result.insertId, parcelasPagas]
+        );
+      }
 
       res.status(201).json({ id: result.insertId });
     } catch (err) {
@@ -260,36 +276,30 @@ async function iniciarServidor() {
     }
   });
 
+  // READ (com valor pago e restante)
   app.get("/vendas", async (req, res) => {
     const [rows] = await db.query(`
       SELECT
-        v.id, v.quantidade, v.valorVenda, v.data, v.status,
+        v.id, v.quantidade, v.valorVenda,
+        DATE_FORMAT(v.data, '%d/%m/%Y') AS data,
+        v.status, v.parcelas, v.parcelasPagas,
         c.nome AS cliente,
-        p.nome AS produto
+        p.nome AS produto,
+        ROUND(v.valorVenda / v.parcelas, 2) AS valorParcela,
+        CASE WHEN v.parcelasPagas >= v.parcelas
+             THEN v.valorVenda
+             ELSE ROUND(v.valorVenda / v.parcelas * v.parcelasPagas, 2)
+        END AS valorPago,
+        v.valorVenda - CASE WHEN v.parcelasPagas >= v.parcelas
+             THEN v.valorVenda
+             ELSE ROUND(v.valorVenda / v.parcelas * v.parcelasPagas, 2)
+        END AS valorRestante
       FROM vendas v
       JOIN clientes c ON c.id = v.clienteId
       JOIN produtos p ON p.id = v.produtoId
-      ORDER BY v.data DESC
+      ORDER BY v.data DESC, v.id DESC
     `);
     res.json(rows);
-  });
-
-  app.put("/vendas/:id", async (req, res) => {
-    const { id } = req.params;
-    const campos = req.body;
-    const chaves = Object.keys(campos);
-    if (chaves.length === 0) return res.status(400).json({ message: "Nada para atualizar." });
-
-    try {
-      const sets = chaves.map((campo) => `${campo} = ?`).join(", ");
-      const valores = chaves.map((campo) => campos[campo]);
-
-      await db.query(`UPDATE vendas SET ${sets} WHERE id = ?`, [...valores, id]);
-      res.json({ message: "Venda atualizada." });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Erro ao atualizar venda." });
-    }
   });
 
   app.delete("/vendas/:id", async (req, res) => {
@@ -299,6 +309,121 @@ async function iniciarServidor() {
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Erro ao excluir venda." });
+    }
+  });
+
+  // Atualiza quantas parcelas foram pagas e registra no histórico
+  app.put("/vendas/:id/parcelas", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const novas = Number(req.body.parcelasPagas);
+
+      const [rows]: any = await db.query(
+        "SELECT parcelas, parcelasPagas FROM vendas WHERE id = ?",
+        [id]
+      );
+      const venda = rows[0];
+      if (!venda) return res.status(404).json({ message: "Venda não encontrada." });
+
+      if (!Number.isInteger(novas) || novas < 0 || novas > venda.parcelas) {
+        return res
+          .status(400)
+          .json({ message: `Parcelas pagas deve ser entre 0 e ${venda.parcelas}.` });
+      }
+
+      const status = novas >= venda.parcelas ? "Pago" : "Pendente";
+
+      if (novas !== venda.parcelasPagas) {
+        await db.query(
+          "UPDATE vendas SET parcelasPagas = ?, status = ? WHERE id = ?",
+          [novas, status, id]
+        );
+        await db.query(
+          "INSERT INTO historico_parcelas (vendaId, parcelasAntes, parcelasDepois) VALUES (?, ?, ?)",
+          [id, venda.parcelasPagas, novas]
+        );
+      }
+
+      res.json({ id, parcelasPagas: novas, status });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erro ao atualizar parcelas." });
+    }
+  });
+
+  // Histórico de alterações de parcelas de uma venda
+  app.get("/vendas/:id/historico", async (req, res) => {
+    try {
+      const [rows] = await db.query(
+        `SELECT id, parcelasAntes, parcelasDepois,
+                DATE_FORMAT(dataAlteracao, '%d/%m/%Y %H:%i') AS dataAlteracao
+         FROM historico_parcelas
+         WHERE vendaId = ?
+         ORDER BY id DESC`,
+        [req.params.id]
+      );
+      res.json(rows);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erro ao buscar histórico." });
+    }
+  });
+
+  // ────────────── DASHBOARD ──────────────
+
+  // Resumo mensal (últimos 6 meses): receita e lucro pelo que foi RECEBIDO,
+  // no mês em que a parcela foi paga; "vendas" pelo mês da venda.
+  app.get("/dashboard/resumo", async (req, res) => {
+    try {
+      const [recebido]: any = await db.query(`
+        SELECT
+          DATE_FORMAT(h.dataAlteracao, '%Y-%m') AS mes,
+          SUM((h.parcelasDepois - h.parcelasAntes) * v.valorVenda / v.parcelas) AS receita,
+          SUM((h.parcelasDepois - h.parcelasAntes)
+              * (v.valorVenda - p.custo * v.quantidade) / v.parcelas) AS lucro
+        FROM historico_parcelas h
+        JOIN vendas v ON v.id = h.vendaId
+        JOIN produtos p ON p.id = v.produtoId
+        WHERE h.dataAlteracao >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m-01')
+        GROUP BY mes
+      `);
+
+      const [vendidas]: any = await db.query(`
+        SELECT DATE_FORMAT(data, '%Y-%m') AS mes, SUM(quantidade) AS vendas
+        FROM vendas
+        WHERE data >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m-01')
+        GROUP BY mes
+      `);
+
+      const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+      const porMes = new Map<string, { receita: number; lucro: number; vendas: number }>();
+      const pegar = (mes: string) => {
+        if (!porMes.has(mes)) porMes.set(mes, { receita: 0, lucro: 0, vendas: 0 });
+        return porMes.get(mes)!;
+      };
+
+      recebido.forEach((r: any) => {
+        const m = pegar(r.mes);
+        m.receita = Number(r.receita);
+        m.lucro = Number(r.lucro);
+      });
+      vendidas.forEach((r: any) => {
+        pegar(r.mes).vendas = Number(r.vendas);
+      });
+
+      const dados = [...porMes.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([mes, v]) => ({
+          mes: MESES[Number(mes.split("-")[1]) - 1],
+          receita: Math.round(v.receita * 100) / 100,
+          lucro: Math.round(v.lucro * 100) / 100,
+          vendas: v.vendas,
+        }));
+
+      res.json(dados);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erro ao buscar resumo." });
     }
   });
 

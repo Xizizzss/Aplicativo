@@ -4,7 +4,14 @@ import CadastroProdutoPage from "./CadastroProdutoPage";
 
 import { listarProdutos, adicionarProdutos, atualizarProduto, excluirProduto, type Produto } from "../../db/produtos";
 import { listarClientes, adicionarCliente, atualizarCliente, excluirCliente, type Cliente } from "../../db/clientes";
-import { listarVendas, type Venda } from "../../db/vendas";
+import {
+  listarVendas,
+  registrarVenda,
+  atualizarParcelasPagas,
+  buscarResumoMensal,
+  type Venda,
+  type ResumoMes,
+} from "../../db/vendas";
 
 import {
   Package,
@@ -79,19 +86,8 @@ type PageId =
   | "clientes"
   | "vendas"
   | "cadastroCliente"
-  | "cadastroProduto";
-
-// ─── Data (ainda fictício — não vem do banco) ──────────────────────────────────
-// TODO: no futuro, calcular isso a partir de uma consulta agregada por mês na tabela "vendas"
-
-const salesMonths = [
-  { mes: "Mar", receita: 3200, lucro: 1100, vendas: 58 },
-  { mes: "Abr", receita: 4100, lucro: 1540, vendas: 74 },
-  { mes: "Mai", receita: 3750, lucro: 1280, vendas: 65 },
-  { mes: "Jun", receita: 5200, lucro: 2050, vendas: 92 },
-  { mes: "Jul", receita: 4800, lucro: 1890, vendas: 83 },
-  { mes: "Ago", receita: 6100, lucro: 2480, vendas: 107 },
-];
+  | "cadastroProduto"
+  | "cadastroVenda";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -341,7 +337,7 @@ function EstoquePage({
 
 // ─── Page: Lucro ──────────────────────────────────────────────────────────────
 
-function LucroPage({ onBack, produtos }: { onBack: () => void; produtos: Produto[] }) {
+function LucroPage({ onBack, produtos, salesMonths }: { onBack: () => void; produtos: Produto[]; salesMonths: ResumoMes[] }) {
   const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
   const totalLucro = salesMonths.reduce((s, d) => s + d.lucro, 0);
   const margemMedia = totalReceita > 0 ? ((totalLucro / totalReceita) * 100).toFixed(1) : "0.0";
@@ -1076,15 +1072,301 @@ function CadastroClientePage({
   );
 }
 
-// ─── Page: Vendas ─────────────────────────────────────────────────────────────
+// ─── Page: Nova Venda ─────────────────────────────────────────────────────────
 
-function VendasPage({ onBack, vendas }: { onBack: () => void; vendas: Venda[] }) {
-  const totalVendas = salesMonths.reduce((s, d) => s + d.vendas, 0);
-  const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
-  const ticketMedio = totalVendas > 0 ? totalReceita / totalVendas : 0;
+function CadastroVendaPage({
+  onBack,
+  produtos,
+  clients,
+  onSalvar,
+}: {
+  onBack: () => void;
+  produtos: Produto[];
+  clients: Cliente[];
+  onSalvar: (dados: {
+    produtoId: number;
+    clienteId: number;
+    quantidade: number;
+    valorVenda: number;
+    data: string;
+    parcelas: number;
+    parcelasPagas: number;
+  }) => Promise<void>;
+}) {
+  const [produtoId, setProdutoId] = useState("");
+  const [clienteId, setClienteId] = useState("");
+  const [quantidade, setQuantidade] = useState("1");
+  const [precoVendido, setPrecoVendido] = useState("");
+  const [data, setData] = useState(new Date().toLocaleDateString("sv-SE"));
+  const [parcelas, setParcelas] = useState("1");
+  const [parcelasPagas, setParcelasPagas] = useState("1");
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const produto = produtos.find((p) => p.id === Number(produtoId));
+  const qtd = Number(quantidade) || 0;
+  const precoUnit = Number(precoVendido) || 0;
+  const total = Math.round(precoUnit * qtd * 100) / 100;
+  const lucroEstimado = produto ? total - Number(produto.custo) * qtd : 0;
+
+  // Parcelas: o valor recebido é proporcional às parcelas pagas
+  const nParcelas = Math.min(Math.max(1, Math.floor(Number(parcelas)) || 1), 48);
+  const nPagas = Math.min(Math.max(0, Math.floor(Number(parcelasPagas)) || 0), nParcelas);
+  const valorParcela = Math.round((total / nParcelas) * 100) / 100;
+  const valorRecebido = nPagas >= nParcelas ? total : Math.round(valorParcela * nPagas * 100) / 100;
+  const valorAReceber = Math.round((total - valorRecebido) * 100) / 100;
+
+  const inputClass =
+    "w-full mt-1.5 px-4 py-3 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all";
+  const labelClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide";
+
+  const escolherProduto = (id: string) => {
+    setProdutoId(id);
+    setSalvo(false);
+    const p = produtos.find((x) => x.id === Number(id));
+    setPrecoVendido(p ? String(p.preco) : "");
+  };
+
+  const mudarParcelas = (valor: string) => {
+    setParcelas(valor);
+    setSalvo(false);
+    // não deixa o número de parcelas pagas passar do total de parcelas
+    const novoTotal = Math.min(Math.max(1, Math.floor(Number(valor)) || 1), 48);
+    if (Number(parcelasPagas) > novoTotal) setParcelasPagas(String(novoTotal));
+  };
+
+  const handleGravar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErro("");
+    setSalvo(false);
+
+    if (!produto) return setErro("Escolha um produto.");
+    if (qtd < 1) return setErro("A quantidade deve ser pelo menos 1.");
+    if (qtd > produto.estoque) return setErro(`Estoque insuficiente (disponível: ${produto.estoque}).`);
+    if (precoUnit <= 0) return setErro("Informe o valor da venda.");
+
+    setSalvando(true);
+    try {
+      await onSalvar({
+        produtoId: produto.id,
+        clienteId: Number(clienteId),
+        quantidade: qtd,
+        valorVenda: total,
+        data,
+        parcelas: nParcelas,
+        parcelasPagas: nPagas,
+      });
+      setSalvo(true);
+      setProdutoId("");
+      setClienteId("");
+      setQuantidade("1");
+      setPrecoVendido("");
+      setParcelas("1");
+      setParcelasPagas("1");
+    } catch (err: any) {
+      setErro(err.message || "Erro ao gravar venda.");
+    } finally {
+      setSalvando(false);
+    }
+  };
 
   return (
-    <PageShell title="Vendas" subtitle="Histórico e desempenho de vendas" onBack={onBack}>
+    <PageShell title="Nova venda" subtitle="Registrar uma venda" onBack={onBack}>
+      <div className="max-w-md">
+        <form onSubmit={handleGravar} className="space-y-4">
+          <div>
+            <label className={labelClass}>Produto</label>
+            <select className={inputClass} value={produtoId} onChange={(e) => escolherProduto(e.target.value)}>
+              <option value="">Selecione…</option>
+              {produtos.map((p) => (
+                <option key={p.id} value={p.id} disabled={p.estoque === 0}>
+                  {p.nome} ({p.estoque} em estoque)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={labelClass}>Cliente</label>
+            <select className={inputClass} value={clienteId} onChange={(e) => { setClienteId(e.target.value); setSalvo(false); }}>
+              <option value="">Selecione…</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Vendido por (cada)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className={inputClass}
+                value={precoVendido}
+                onChange={(e) => setPrecoVendido(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Quantidade</label>
+              <input
+                type="number"
+                min="1"
+                className={inputClass}
+                value={quantidade}
+                onChange={(e) => setQuantidade(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Data</label>
+            <input type="date" className={inputClass} value={data} onChange={(e) => setData(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Nº de parcelas</label>
+              <input
+                type="number"
+                min="1"
+                max="48"
+                className={inputClass}
+                value={parcelas}
+                onChange={(e) => mudarParcelas(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Parcelas já pagas</label>
+              <input
+                type="number"
+                min="0"
+                max={nParcelas}
+                className={inputClass}
+                value={parcelasPagas}
+                onChange={(e) => { setParcelasPagas(e.target.value); setSalvo(false); }}
+              />
+            </div>
+          </div>
+
+          <div className="px-4 py-3 rounded-xl bg-secondary/60 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total da venda</span>
+              <span className="text-lg font-bold text-foreground">{fmt(total)}</span>
+            </div>
+            {nParcelas > 1 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{nParcelas}x de</span>
+                <span className="text-sm font-semibold text-foreground">{fmt(valorParcela)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Recebido ({nPagas}/{nParcelas} parcelas)</span>
+              <span className="text-sm font-semibold text-emerald-600">{fmt(valorRecebido)}</span>
+            </div>
+            {valorAReceber > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">A receber</span>
+                <span className="text-sm font-semibold text-amber-600">{fmt(valorAReceber)}</span>
+              </div>
+            )}
+            {produto && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Lucro estimado</span>
+                <span className={`text-sm font-semibold ${lucroEstimado >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {fmt(lucroEstimado)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {salvo && (
+            <div className="px-3 py-2 rounded-lg bg-green-50 border border-green-100 flex items-center gap-2">
+              <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+              <p className="text-xs text-green-700 font-medium">Venda registrada com sucesso.</p>
+            </div>
+          )}
+
+          {erro && (
+            <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2">
+              <AlertCircle size={14} className="text-red-600 shrink-0" />
+              <p className="text-xs text-red-700 font-medium">{erro}</p>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={salvando || !produtoId || !clienteId}
+              className="flex-1 py-3 rounded-xl font-semibold text-sm text-white
+                bg-gradient-to-r from-[#e8a090] to-[#b87c6a] hover:from-[#e29483] hover:to-[#a86e5c]
+                shadow-lg shadow-[#e8a090]/30 transition-all flex items-center justify-center gap-2
+                disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {salvando ? "Gravando..." : (<><Save size={16} /> Gravar</>)}
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex-1 py-3 rounded-xl font-semibold text-sm text-foreground border border-border bg-card hover:bg-muted transition-all"
+            >
+              Voltar
+            </button>
+          </div>
+        </form>
+      </div>
+    </PageShell>
+  );
+}
+
+// ─── Page: Vendas ─────────────────────────────────────────────────────────────
+
+function VendasPage({ onBack, vendas, salesMonths, onNovaVenda, onPagarParcela }: {
+  onBack: () => void;
+  vendas: Venda[];
+  salesMonths: ResumoMes[];
+  onNovaVenda: () => void;
+  onPagarParcela: (id: number, novasParcelasPagas: number) => Promise<void>;
+}) {
+  const [pagandoId, setPagandoId] = useState<number | null>(null);
+  const [erro, setErro] = useState("");
+
+  const totalVendas = salesMonths.reduce((s, d) => s + d.vendas, 0);
+  const totalRecebido = salesMonths.reduce((s, d) => s + d.receita, 0);
+  const totalAReceber = vendas.reduce((s, v) => s + Number(v.valorRestante || 0), 0);
+
+  const handlePagar = async (v: Venda) => {
+    setErro("");
+    setPagandoId(v.id);
+    try {
+      await onPagarParcela(v.id, v.parcelasPagas + 1);
+    } catch (err: any) {
+      setErro(err.message || "Erro ao registrar pagamento da parcela.");
+    } finally {
+      setPagandoId(null);
+    }
+  };
+
+  return (
+    <PageShell
+      title="Vendas"
+      subtitle="Histórico e desempenho de vendas"
+      onBack={onBack}
+      headerAction={
+        <button
+          onClick={onNovaVenda}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white
+            bg-gradient-to-r from-[#e8a090] to-[#b87c6a] hover:from-[#e29483] hover:to-[#a86e5c]
+            shadow-sm transition-all shrink-0"
+        >
+          <Plus size={14} />
+          <span className="hidden sm:inline">Nova venda</span>
+        </button>
+      }
+    >
       <div className="space-y-5">
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-card rounded-xl border border-border p-4 text-center">
@@ -1092,12 +1374,12 @@ function VendasPage({ onBack, vendas }: { onBack: () => void; vendas: Venda[] })
             <p className="text-xs text-muted-foreground mt-0.5">peças vendidas</p>
           </div>
           <div className="bg-card rounded-xl border border-border p-4 text-center">
-            <p className="text-xl font-bold text-foreground">{fmt(totalReceita)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">receita total</p>
+            <p className="text-xl font-bold text-emerald-600">{fmt(totalRecebido)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">recebido (6 meses)</p>
           </div>
           <div className="bg-card rounded-xl border border-border p-4 text-center">
-            <p className="text-xl font-bold text-foreground">{fmt(ticketMedio)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">ticket médio</p>
+            <p className="text-xl font-bold text-amber-600">{fmt(totalAReceber)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">a receber</p>
           </div>
         </div>
 
@@ -1113,6 +1395,13 @@ function VendasPage({ onBack, vendas }: { onBack: () => void; vendas: Venda[] })
           </ResponsiveContainer>
         </div>
 
+        {erro && (
+          <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2 max-w-md">
+            <AlertCircle size={14} className="text-red-600 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{erro}</p>
+          </div>
+        )}
+
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
             <p className="text-sm font-semibold text-foreground">Vendas recentes</p>
@@ -1126,29 +1415,67 @@ function VendasPage({ onBack, vendas }: { onBack: () => void; vendas: Venda[] })
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Valor</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Data</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Parcela</th>
                 </tr>
               </thead>
               <tbody>
-                {vendas.map((s) => (
-                  <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 font-medium text-foreground">{s.cliente}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{s.produto}</td>
-                    <td className="px-4 py-3 text-right font-mono">{fmt(Number(s.valorVenda))}</td>
-                    <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{s.data}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        s.status === "Pago"
-                          ? "bg-emerald-100 text-emerald-600"
-                          : "bg-amber-100 text-amber-600"
-                      }`}>
-                        {s.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {vendas.map((s) => {
+                  const mostrarParcelas = s.parcelas > 1 || s.status !== "Pago";
+                  const faltaPagar = s.parcelasPagas < s.parcelas;
+                  return (
+                    <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 font-medium text-foreground">{s.cliente}</td>
+                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{s.produto}</td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-mono">{fmt(Number(s.valorVenda))}</p>
+                        {mostrarParcelas && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Recebido <span className="text-emerald-600 font-semibold">{fmt(s.valorPago)}</span>
+                            {s.valorRestante > 0 && (
+                              <> · falta <span className="text-amber-600 font-semibold">{fmt(s.valorRestante)}</span></>
+                            )}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted-foreground hidden md:table-cell">{s.data}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          s.status === "Pago"
+                            ? "bg-emerald-100 text-emerald-600"
+                            : "bg-amber-100 text-amber-600"
+                        }`}>
+                          {s.status}
+                        </span>
+                        {s.parcelas > 1 && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {s.parcelasPagas}/{s.parcelas} parcelas
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {faltaPagar ? (
+                          <button
+                            onClick={() => handlePagar(s)}
+                            disabled={pagandoId === s.id}
+                            title={`Registrar pagamento da parcela ${s.parcelasPagas + 1} de ${s.parcelas} (${fmt(s.valorParcela)})`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                              text-[#8a4a3a] bg-[#fce4df] border border-[#f4c5b8]
+                              hover:bg-[#f4b8aa] hover:border-[#e8a090] transition-colors
+                              disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            <CheckCircle2 size={12} />
+                            {pagandoId === s.id ? "Salvando..." : "Pagar parcela"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {vendas.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Nenhuma venda registrada.
                     </td>
                   </tr>
@@ -1175,13 +1502,21 @@ function HomePage({
   onNavigate,
   totalClientes,
   totalProdutos,
+  salesMonths,
 }: {
   onNavigate: (p: PageId) => void;
   totalClientes: number;
   totalProdutos: number;
+  salesMonths: ResumoMes[];
 }) {
+
   const totalReceita = salesMonths.reduce((s, d) => s + d.receita, 0);
   const totalLucro = salesMonths.reduce((s, d) => s + d.lucro, 0);
+
+  // Mês e ano atuais, ex.: "Novembro 2026"
+  const agora = new Date();
+  const nomeMes = agora.toLocaleDateString("pt-BR", { month: "long" });
+  const mesAno = `${nomeMes.charAt(0).toUpperCase()}${nomeMes.slice(1)} ${agora.getFullYear()}`;
 
   return (
     <div
@@ -1198,7 +1533,7 @@ function HomePage({
           </div>
           <p className="text-xs text-muted-foreground pl-10">gestão de roupas</p>
         </div>
-        <p className="text-xs text-muted-foreground pt-2">Agosto 2026</p>
+        <p className="text-xs text-muted-foreground pt-2">{mesAno}</p>
       </header>
 
       <section className="px-6 sm:px-10 pt-10 pb-6">
@@ -1281,19 +1616,22 @@ export default function App() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [clients, setClients] = useState<Cliente[]>([]);
   const [vendas, setVendas] = useState<Venda[]>([]);
+  const [salesMonths, setSalesMonths] = useState<ResumoMes[]>([]);
   const [carregando, setCarregando] = useState(true);
 
   const carregarDados = async () => {
     setCarregando(true);
     try {
-      const [prods, clis, vds] = await Promise.all([
+      const [prods, clis, vds, resumo] = await Promise.all([
         listarProdutos(),
         listarClientes(),
         listarVendas(),
+        buscarResumoMensal().catch(() => []),
       ]);
       setProdutos(prods);
       setClients(clis);
       setVendas(vds);
+      setSalesMonths(resumo);
     } catch (err) {
       console.error("Erro ao carregar dados do servidor:", err);
     } finally {
@@ -1360,11 +1698,30 @@ export default function App() {
     setProdutos((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const handleSalvarVenda = async (dados: {
+    produtoId: number;
+    clienteId: number;
+    quantidade: number;
+    valorVenda: number;
+    data: string;
+    parcelas: number;
+    parcelasPagas: number;
+  }) => {
+    await registrarVenda(dados);
+    await carregarDados();
+  };
+
+  // Registra o pagamento de parcelas e recarrega vendas + gráficos de lucro
+  const handlePagarParcela = async (id: number, novasParcelasPagas: number) => {
+    await atualizarParcelasPagas(id, novasParcelasPagas);
+    await carregarDados();
+  };
+
   return (
     <>
       {page === "login" && <Login onLogin={goHome} />}
       {page === "home" && (
-        <HomePage onNavigate={setPage} totalClientes={clients.length} totalProdutos={produtos.length} />
+        <HomePage onNavigate={setPage} totalClientes={clients.length} totalProdutos={produtos.length} salesMonths={salesMonths} />
       )}
       {page === "estoque" && (
         <EstoquePage
@@ -1375,7 +1732,7 @@ export default function App() {
           onExcluir={handleExcluirProduto}
         />
       )}
-      {page === "lucro" && <LucroPage onBack={goHome} produtos={produtos} />}
+      {page === "lucro" && <LucroPage onBack={goHome} produtos={produtos} salesMonths={salesMonths} />}
       {page === "clientes" && (
         <ClientesPage
           onBack={goHome}
@@ -1391,7 +1748,23 @@ export default function App() {
       {page === "cadastroProduto" && (
         <CadastroProdutoPage onBack={goEstoque} onSalvar={handleSalvarProduto} />
       )}
-      {page === "vendas" && <VendasPage onBack={goHome} vendas={vendas} />}
+      {page === "vendas" && (
+        <VendasPage
+          onBack={goHome}
+          vendas={vendas}
+          salesMonths={salesMonths}
+          onNovaVenda={() => setPage("cadastroVenda")}
+          onPagarParcela={handlePagarParcela}
+        />
+      )}
+      {page === "cadastroVenda" && (
+        <CadastroVendaPage
+          onBack={() => setPage("vendas")}
+          produtos={produtos}
+          clients={clients}
+          onSalvar={handleSalvarVenda}
+        />
+      )}
     </>
   );
 }
