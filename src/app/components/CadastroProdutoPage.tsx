@@ -3,6 +3,9 @@ import { Package, Hash, Save, CheckCircle2, AlertCircle, Truck, Plus, X } from "
 import { listarFornecedores, adicionarFornecedor, type Fornecedor } from "../../db/fornecedores";
 import { PageShell } from "./Shared";
 
+// Tamanhos disponíveis no cadastro
+const TAMANHOS = ["P", "M", "G", "GG", "XG"];
+
 export function NovoFornecedorModal({
   onClose,
   onCriado,
@@ -130,6 +133,7 @@ export default function CadastroProdutoPage({
     custo: number;
     estoque: number;
     fornecedorId: number | null;
+    tamanhos?: { tamanho: string; quantidade: number }[];
   }) => Promise<void>;
 }) {
   const [nome, setNome] = useState("");
@@ -140,6 +144,12 @@ export default function CadastroProdutoPage({
   const [fornecedorId, setFornecedorId] = useState<string>("");
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [modalAberto, setModalAberto] = useState(false);
+
+  // Divisão por tamanho
+  const [usaTamanhos, setUsaTamanhos] = useState(true);
+  const [qtdTamanhos, setQtdTamanhos] = useState<Record<string, string>>({});
+
+  const totalTamanhos = TAMANHOS.reduce((soma, t) => soma + (Number(qtdTamanhos[t]) || 0), 0);
 
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
@@ -161,20 +171,37 @@ export default function CadastroProdutoPage({
     setErro("");
 
     try {
-      await onSalvar({
-        nome,
-        categoria,
-        preco: Number(preco),
-        custo: Number(custo),
-        estoque: Number(estoque),
-        fornecedorId: fornecedorId ? Number(fornecedorId) : null,
-      });
+      if (usaTamanhos) {
+        const tamanhos = TAMANHOS
+          .map((t) => ({ tamanho: t, quantidade: Number(qtdTamanhos[t]) || 0 }))
+          .filter((t) => t.quantidade > 0);
+
+        await onSalvar({
+          nome,
+          categoria,
+          preco: Number(preco),
+          custo: Number(custo),
+          estoque: totalTamanhos,
+          fornecedorId: fornecedorId ? Number(fornecedorId) : null,
+          tamanhos,
+        });
+      } else {
+        await onSalvar({
+          nome,
+          categoria,
+          preco: Number(preco),
+          custo: Number(custo),
+          estoque: Number(estoque),
+          fornecedorId: fornecedorId ? Number(fornecedorId) : null,
+        });
+      }
       setSalvo(true);
       setNome("");
       setCategoria("");
       setPreco("");
       setCusto("");
       setEstoque("");
+      setQtdTamanhos({});
       setFornecedorId("");
     } catch (err: any) {
       setErro(err.message || "Erro ao gravar produto.");
@@ -182,6 +209,8 @@ export default function CadastroProdutoPage({
       setSalvando(false);
     }
   };
+
+  const estoqueInvalido = usaTamanhos ? totalTamanhos <= 0 : !estoque;
 
   return (
     <PageShell title="Cadastro de produtos" subtitle="Adicionar novo produto" onBack={onBack}>
@@ -256,17 +285,72 @@ export default function CadastroProdutoPage({
               </div>
             </div>
 
+            {/* ───────── Estoque: com tamanho ou sem tamanho ───────── */}
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estoque inicial</label>
-              <input
-                type="number"
-                min="0"
-                className="w-full mt-1.5 px-4 py-3 text-sm rounded-xl border border-border bg-background
-                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
-                value={estoque}
-                onChange={(e) => { setEstoque(e.target.value); setSalvo(false); }}
-                required
-              />
+
+              <div className="grid grid-cols-2 gap-2 mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setUsaTamanhos(true); setSalvo(false); }}
+                  className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                    usaTamanhos
+                      ? "border-primary bg-secondary text-primary"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Peça com tamanho
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUsaTamanhos(false); setSalvo(false); }}
+                  className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                    !usaTamanhos
+                      ? "border-primary bg-secondary text-primary"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Sem tamanho
+                </button>
+              </div>
+
+              {usaTamanhos ? (
+                <div className="mt-3">
+                  <div className="grid grid-cols-5 gap-2">
+                    {TAMANHOS.map((t) => (
+                      <div key={t} className="flex flex-col items-center">
+                        <span className="text-xs font-bold text-foreground mb-1">{t}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          className="w-full px-2 py-3 text-sm text-center rounded-xl border border-border bg-background
+                            focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                          value={qtdTamanhos[t] ?? ""}
+                          onChange={(e) => {
+                            setQtdTamanhos((prev) => ({ ...prev, [t]: e.target.value }));
+                            setSalvo(false);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Total: <span className="font-semibold text-foreground">{totalTamanhos}</span>{" "}
+                    {totalTamanhos === 1 ? "peça" : "peças"}
+                  </p>
+                </div>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  className="w-full mt-3 px-4 py-3 text-sm rounded-xl border border-border bg-background
+                    focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  value={estoque}
+                  onChange={(e) => { setEstoque(e.target.value); setSalvo(false); }}
+                  required
+                />
+              )}
             </div>
 
             <div>
@@ -316,7 +400,7 @@ export default function CadastroProdutoPage({
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button
                 type="submit"
-                disabled={salvando || !nome || !categoria || !preco || !custo || !estoque}
+                disabled={salvando || !nome || !categoria || !preco || !custo || estoqueInvalido}
                 className="flex-1 py-3 rounded-xl font-semibold text-sm text-white
                   bg-gradient-to-r from-[#e8a090] to-[#b87c6a]
                   hover:from-[#e29483] hover:to-[#a86e5c]

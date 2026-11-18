@@ -2,7 +2,17 @@ import React, { useState, useEffect } from "react";
 import Login from "./Login";
 import CadastroProdutoPage from "./CadastroProdutoPage";
 
-import { listarProdutos, adicionarProdutos, atualizarProduto, excluirProduto, type Produto } from "../../db/produtos";
+import {
+  listarProdutos,
+  adicionarProdutos,
+  atualizarProduto,
+  excluirProduto,
+  lerTamanhos,
+  definirTamanho,
+  removerTamanho,
+  type Produto,
+  type TamanhoEstoque,
+} from "../../db/produtos";
 import { listarClientes, adicionarCliente, atualizarCliente, excluirCliente, type Cliente } from "../../db/clientes";
 import {
   listarVendas,
@@ -114,6 +124,79 @@ function StockBadge({ qty }: { qty: number }) {
   );
 }
 
+// Tamanhos disponíveis (mesma ordem usada no cadastro)
+const TAMANHOS = ["P", "M", "G", "GG", "XG"];
+
+// Etiquetas com a quantidade por tamanho. Produto sem tamanhos mostra "—".
+// Uma cor por tamanho (tons claros com texto escuro, pra manter a leitura)
+const COR_TAMANHO: Record<string, string> = {
+  PP: "bg-teal-100 text-teal-800",
+  P: "bg-sky-100 text-sky-800",
+  M: "bg-emerald-100 text-emerald-800",
+  G: "bg-amber-100 text-amber-900",
+  GG: "bg-rose-100 text-rose-800",
+  XG: "bg-violet-100 text-violet-800",
+  XXG: "bg-fuchsia-100 text-fuchsia-800",
+};
+
+// Cada tamanho tem sempre o mesmo "espaço" na linha (P, M, G, GG, XG),
+// então as etiquetas ficam alinhadas de um produto pro outro.
+// Produto sem tamanhos mostra "—".
+// variant "tabela": etiquetas compactas de largura fixa (3 por linha em telas médias,
+//                    5 por linha em telas grandes).
+// variant "cartao":  ocupa toda a largura do cartão (celular), 5 por linha.
+function TamanhosBadges({
+  resumo,
+  variant = "tabela",
+}: {
+  resumo?: string | null;
+  variant?: "tabela" | "cartao";
+}) {
+  const tamanhos = lerTamanhos(resumo);
+  if (tamanhos.length === 0) {
+    return variant === "cartao" ? null : <span className="text-muted-foreground">—</span>;
+  }
+
+  const porTamanho = new Map(tamanhos.map((t) => [t.tamanho, t.quantidade]));
+  // os 5 padrão + qualquer outro tamanho que o produto tenha (ex.: PP, XXG)
+  const espacos = [...TAMANHOS, ...tamanhos.map((t) => t.tamanho).filter((t) => !TAMANHOS.includes(t))];
+
+  return (
+    <div
+      className={
+        variant === "cartao"
+          ? "grid grid-cols-5 gap-1.5 w-full"
+          : "grid grid-cols-[repeat(3,2.6rem)] lg:grid-cols-[repeat(5,2.6rem)] gap-1 w-max"
+      }
+    >
+      {espacos.map((tam) => {
+        const qtd = porTamanho.get(tam);
+        if (qtd === undefined) return <span key={tam} aria-hidden="true" />;
+
+        const cor =
+          qtd === 0
+            ? "bg-muted text-muted-foreground/70 line-through"
+            : COR_TAMANHO[tam] ?? "bg-slate-100 text-slate-800";
+        // estoque baixo: aro vermelho discreto, sem perder a cor do tamanho
+        const aviso = qtd > 0 && qtd <= 3 ? "ring-1 ring-red-400" : "";
+
+        return (
+          <span
+            key={tam}
+            title={`Tamanho ${tam}: ${qtd} ${qtd === 1 ? "peça" : "peças"}`}
+            className={`inline-flex items-center justify-center gap-1 rounded-full text-xs font-semibold whitespace-nowrap ${
+              variant === "cartao" ? "py-1.5" : "py-1"
+            } ${cor} ${aviso}`}
+          >
+            {tam}
+            <span className="font-mono">{qtd}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Page Shell ───────────────────────────────────────────────────────────────
 
 function PageShell({
@@ -122,12 +205,14 @@ function PageShell({
   onBack,
   children,
   headerAction,
+  wide = false,
 }: {
   title: string;
   subtitle: string;
   onBack: () => void;
   children: React.ReactNode;
   headerAction?: React.ReactNode;
+  wide?: boolean; // página mais larga (tabelas com muitas colunas)
 }) {
   return (
     <div className="min-h-screen bg-background" style={{ fontFamily: "'Nunito', sans-serif" }}>
@@ -147,10 +232,26 @@ function PageShell({
         {headerAction}
       </header>
 
-      <main className="px-4 sm:px-8 py-6 max-w-5xl mx-auto">{children}</main>
+      <main className={`px-4 sm:px-8 py-6 mx-auto ${wide ? "max-w-[96rem]" : "max-w-5xl"}`}>{children}</main>
     </div>
   );
 }
+
+// Dados editáveis de um produto. "estoque" só vai quando o produto NÃO usa tamanhos
+// (com tamanhos, o total é a soma deles e o servidor recalcula sozinho).
+type DadosEdicaoProduto = {
+  nome: string;
+  categoria: string;
+  preco: number;
+  custo: number;
+  estoque?: number;
+};
+
+// Alterações de tamanhos feitas na edição: o que gravar e o que remover
+type EdicaoTamanhos = {
+  definir: TamanhoEstoque[];
+  remover: string[];
+};
 
 // ─── Page: Estoque ────────────────────────────────────────────────────────────
 
@@ -164,13 +265,7 @@ function EstoquePage({
   onBack: () => void;
   produtos: Produto[];
   onNovoProduto: () => void;
-  onEditar: (id: number, dados: {
-    nome: string;
-    categoria: string;
-    preco: number;
-    custo: number;
-    estoque: number;
-  }) => void;
+  onEditar: (id: number, dados: DadosEdicaoProduto, tamanhos?: EdicaoTamanhos) => Promise<void>;
   onExcluir: (id: number) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -201,6 +296,7 @@ function EstoquePage({
       title="Estoque"
       subtitle="Controle de peças disponíveis"
       onBack={onBack}
+      wide
       headerAction={
         <button
           onClick={onNovoProduto}
@@ -249,16 +345,72 @@ function EstoquePage({
         )}
 
         <div className="bg-card rounded-xl border border-border overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Celular: um cartão por produto, sem tabela e sem rolagem lateral */}
+          <div className="md:hidden divide-y divide-border">
+            {filtered.map((p) => {
+              const m = (((p.preco - p.custo) / p.preco) * 100).toFixed(0);
+              return (
+                <div key={p.id} className="p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-foreground leading-tight">{p.nome}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {p.categoria}
+                        {p.fornecedorNome ? ` · ${p.fornecedorNome}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setEditando(p)}
+                        title="Editar produto"
+                        className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground
+                          hover:text-primary hover:bg-secondary transition-colors"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        onClick={() => { setExcluindo(p); setErroExclusao(""); }}
+                        title="Excluir produto"
+                        className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground
+                          hover:text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-mono text-sm font-semibold text-foreground">{fmt(p.preco)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        custo {fmt(p.custo)} · margem{" "}
+                        <span className="font-semibold text-emerald-600">{m}%</span>
+                      </p>
+                    </div>
+                    <StockBadge qty={p.estoque} />
+                  </div>
+
+                  <TamanhosBadges resumo={p.tamanhosResumo} variant="cartao" />
+                </div>
+              );
+            })}
+            {filtered.length === 0 && (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum produto encontrado.</p>
+            )}
+          </div>
+
+          {/* Tablet e computador: tabela que se adapta à largura (sem rolagem lateral) */}
+          <div className="hidden md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Produto</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Categoria</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Fornecedor</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Categoria</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden xl:table-cell">Fornecedor</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tamanhos</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Preço</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Custo</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Margem</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden 2xl:table-cell">Custo</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden xl:table-cell">Margem</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estoque</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ações</th>
                 </tr>
@@ -268,12 +420,19 @@ function EstoquePage({
                   const m = (((p.preco - p.custo) / p.preco) * 100).toFixed(0);
                   return (
                     <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-3 font-medium text-foreground">{p.nome}</td>
-                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{p.categoria}</td>
-                      <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{p.fornecedorNome ?? "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-sm">{fmt(p.preco)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-sm text-muted-foreground hidden md:table-cell">{fmt(p.custo)}</td>
-                      <td className="px-4 py-3 text-right hidden md:table-cell">
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {p.nome}
+                        {/* quando a coluna Categoria está escondida, ela aparece embaixo do nome */}
+                        <span className="block text-xs font-normal text-muted-foreground lg:hidden">{p.categoria}</span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{p.categoria}</td>
+                      <td className="px-4 py-3 text-muted-foreground hidden xl:table-cell">{p.fornecedorNome ?? "—"}</td>
+                      <td className="px-4 py-3">
+                        <TamanhosBadges resumo={p.tamanhosResumo} />
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-sm whitespace-nowrap">{fmt(p.preco)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-sm text-muted-foreground whitespace-nowrap hidden 2xl:table-cell">{fmt(p.custo)}</td>
+                      <td className="px-4 py-3 text-right hidden xl:table-cell">
                         <span className="font-mono text-sm text-emerald-600">{m}%</span>
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -304,7 +463,7 @@ function EstoquePage({
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Nenhum produto encontrado.
                     </td>
                   </tr>
@@ -319,7 +478,7 @@ function EstoquePage({
         <EditarProdutoModal
           produto={editando}
           onClose={() => setEditando(null)}
-          onSalvar={(id, dados) => onEditar(id, dados)}
+          onSalvar={onEditar}
         />
       )}
 
@@ -451,35 +610,69 @@ function EditarProdutoModal({
 }: {
   produto: Produto;
   onClose: () => void;
-  onSalvar: (id: number, dados: {
-    nome: string;
-    categoria: string;
-    preco: number;
-    custo: number;
-    estoque: number;
-  }) => void;
+  onSalvar: (id: number, dados: DadosEdicaoProduto, tamanhos?: EdicaoTamanhos) => Promise<void>;
 }) {
   const [nome, setNome] = useState(produto.nome);
   const [categoria, setCategoria] = useState(produto.categoria);
   const [preco, setPreco] = useState(String(produto.preco));
   const [custo, setCusto] = useState(String(produto.custo));
   const [estoque, setEstoque] = useState(String(produto.estoque));
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
 
-  const handleSalvar = (e: React.FormEvent) => {
+  // Tamanhos que o produto já tem (vindos de "P:3,M:5,G:2")
+  const tamanhosOriginais = lerTamanhos(produto.tamanhosResumo);
+  const [qtdTamanhos, setQtdTamanhos] = useState<Record<string, string>>(
+    Object.fromEntries(tamanhosOriginais.map((t) => [t.tamanho, String(t.quantidade)]))
+  );
+
+  // Tamanhos preenchidos (campo vazio = tamanho não existe nesse produto)
+  const preenchidos = TAMANHOS.filter((t) => (qtdTamanhos[t] ?? "") !== "");
+  const usaTamanhos = preenchidos.length > 0;
+  const totalTamanhos = preenchidos.reduce((soma, t) => soma + (Number(qtdTamanhos[t]) || 0), 0);
+
+  const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSalvar(produto.id, {
-      nome,
-      categoria,
-      preco: Number(preco),
-      custo: Number(custo),
-      estoque: Number(estoque),
-    });
-    onClose();
+    setErro("");
+    setSalvando(true);
+    try {
+      const dados: DadosEdicaoProduto = {
+        nome,
+        categoria,
+        preco: Number(preco),
+        custo: Number(custo),
+      };
+
+      if (usaTamanhos) {
+        const original = tamanhosOriginais.map((t) => t.tamanho);
+        await onSalvar(produto.id, dados, {
+          definir: preenchidos.map((t) => ({
+            tamanho: t,
+            quantidade: Math.max(0, Math.floor(Number(qtdTamanhos[t]) || 0)),
+          })),
+          remover: original.filter((t) => !preenchidos.includes(t)),
+        });
+      } else {
+        // sem tamanhos: continua usando o estoque único
+        // (se o produto tinha tamanhos e todos foram esvaziados, eles são removidos)
+        await onSalvar(
+          produto.id,
+          { ...dados, estoque: Number(estoque) },
+          tamanhosOriginais.length > 0
+            ? { definir: [], remover: tamanhosOriginais.map((t) => t.tamanho) }
+            : undefined
+        );
+      }
+      onClose();
+    } catch (err: any) {
+      setErro(err.message || "Erro ao salvar produto.");
+      setSalvando(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-      <div className="bg-card rounded-2xl border border-border shadow-xl w-full max-w-sm p-6 relative">
+      <div className="bg-card rounded-2xl border border-border shadow-xl w-full max-w-md p-6 relative max-h-[90vh] overflow-y-auto">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
@@ -540,21 +733,57 @@ function EditarProdutoModal({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estoque</label>
-            <input
-              type="number"
-              min="0"
-              className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
-                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
-              value={estoque}
-              onChange={(e) => setEstoque(e.target.value)}
-            />
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Estoque por tamanho
+            </label>
+            <div className="grid grid-cols-5 gap-2 mt-1.5">
+              {TAMANHOS.map((t) => (
+                <div key={t} className="flex flex-col items-center">
+                  <span className="text-xs font-bold text-foreground mb-1">{t}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="—"
+                    className="w-full px-2 py-2.5 text-sm text-center rounded-xl border border-border bg-background
+                      focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                    value={qtdTamanhos[t] ?? ""}
+                    onChange={(e) => setQtdTamanhos((prev) => ({ ...prev, [t]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {usaTamanhos
+                ? <>Total: <span className="font-semibold text-foreground">{totalTamanhos}</span> {totalTamanhos === 1 ? "peça" : "peças"}. Deixe vazio o tamanho que não existe.</>
+                : "Opcional: preencha para dividir este produto por tamanho."}
+            </p>
           </div>
+
+          {!usaTamanhos && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estoque (sem tamanho)</label>
+              <input
+                type="number"
+                min="0"
+                className="w-full mt-1.5 px-4 py-2.5 text-sm rounded-xl border border-border bg-background
+                  focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                value={estoque}
+                onChange={(e) => setEstoque(e.target.value)}
+              />
+            </div>
+          )}
+
+          {erro && (
+            <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2">
+              <AlertCircle size={14} className="text-red-600 shrink-0" />
+              <p className="text-xs text-red-700 font-medium">{erro}</p>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
-              disabled={!nome}
+              disabled={!nome || salvando}
               className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white
                 bg-gradient-to-r from-[#e8a090] to-[#b87c6a]
                 hover:from-[#e29483] hover:to-[#a86e5c]
@@ -1087,6 +1316,7 @@ function CadastroVendaPage({
     produtoId: number;
     clienteId: number;
     quantidade: number;
+    tamanho?: string;
     valorVenda: number;
     data: string;
     parcelas: number;
@@ -1094,6 +1324,7 @@ function CadastroVendaPage({
   }) => Promise<void>;
 }) {
   const [produtoId, setProdutoId] = useState("");
+  const [tamanho, setTamanho] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [quantidade, setQuantidade] = useState("1");
   const [precoVendido, setPrecoVendido] = useState("");
@@ -1105,6 +1336,12 @@ function CadastroVendaPage({
   const [erro, setErro] = useState("");
 
   const produto = produtos.find((p) => p.id === Number(produtoId));
+
+  // Produtos com divisão por tamanho: só aparecem os tamanhos que ainda têm peças
+  const tamanhosDoProduto = lerTamanhos(produto?.tamanhosResumo);
+  const usaTamanhos = tamanhosDoProduto.length > 0;
+  const estoqueDoTamanho = tamanhosDoProduto.find((t) => t.tamanho === tamanho)?.quantidade ?? 0;
+
   const qtd = Number(quantidade) || 0;
   const precoUnit = Number(precoVendido) || 0;
   const total = Math.round(precoUnit * qtd * 100) / 100;
@@ -1123,6 +1360,7 @@ function CadastroVendaPage({
 
   const escolherProduto = (id: string) => {
     setProdutoId(id);
+    setTamanho("");
     setSalvo(false);
     const p = produtos.find((x) => x.id === Number(id));
     setPrecoVendido(p ? String(p.preco) : "");
@@ -1143,7 +1381,13 @@ function CadastroVendaPage({
 
     if (!produto) return setErro("Escolha um produto.");
     if (qtd < 1) return setErro("A quantidade deve ser pelo menos 1.");
-    if (qtd > produto.estoque) return setErro(`Estoque insuficiente (disponível: ${produto.estoque}).`);
+    if (usaTamanhos) {
+      if (!tamanho) return setErro("Escolha o tamanho da peça.");
+      if (qtd > estoqueDoTamanho)
+        return setErro(`Estoque insuficiente no tamanho ${tamanho} (disponível: ${estoqueDoTamanho}).`);
+    } else if (qtd > produto.estoque) {
+      return setErro(`Estoque insuficiente (disponível: ${produto.estoque}).`);
+    }
     if (precoUnit <= 0) return setErro("Informe o valor da venda.");
 
     setSalvando(true);
@@ -1152,6 +1396,7 @@ function CadastroVendaPage({
         produtoId: produto.id,
         clienteId: Number(clienteId),
         quantidade: qtd,
+        tamanho: usaTamanhos ? tamanho : undefined,
         valorVenda: total,
         data,
         parcelas: nParcelas,
@@ -1159,6 +1404,7 @@ function CadastroVendaPage({
       });
       setSalvo(true);
       setProdutoId("");
+      setTamanho("");
       setClienteId("");
       setQuantidade("1");
       setPrecoVendido("");
@@ -1186,6 +1432,34 @@ function CadastroVendaPage({
               ))}
             </select>
           </div>
+
+          {usaTamanhos && (
+            <div>
+              <label className={labelClass}>Tamanho</label>
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                {tamanhosDoProduto.map((t) => {
+                  const esgotado = t.quantidade === 0;
+                  const ativo = tamanho === t.tamanho;
+                  return (
+                    <button
+                      key={t.tamanho}
+                      type="button"
+                      disabled={esgotado}
+                      onClick={() => { setTamanho(t.tamanho); setSalvo(false); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                        ativo
+                          ? "border-primary bg-secondary text-primary"
+                          : "border-border bg-card text-foreground hover:bg-muted"
+                      } disabled:opacity-40 disabled:line-through disabled:cursor-not-allowed`}
+                    >
+                      {t.tamanho}
+                      <span className="ml-1.5 text-xs font-mono text-muted-foreground">{t.quantidade}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className={labelClass}>Cliente</label>
@@ -1300,7 +1574,7 @@ function CadastroVendaPage({
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="submit"
-              disabled={salvando || !produtoId || !clienteId}
+              disabled={salvando || !produtoId || !clienteId || (usaTamanhos && !tamanho)}
               className="flex-1 py-3 rounded-xl font-semibold text-sm text-white
                 bg-gradient-to-r from-[#e8a090] to-[#b87c6a] hover:from-[#e29483] hover:to-[#a86e5c]
                 shadow-lg shadow-[#e8a090]/30 transition-all flex items-center justify-center gap-2
@@ -1425,7 +1699,14 @@ function VendasPage({ onBack, vendas, salesMonths, onNovaVenda, onPagarParcela }
                   return (
                     <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3 font-medium text-foreground">{s.cliente}</td>
-                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{s.produto}</td>
+                      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
+                        {s.produto}
+                        {s.tamanho && (
+                          <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-secondary text-primary text-xs font-semibold">
+                            {s.tamanho}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <p className="font-mono">{fmt(Number(s.valorVenda))}</p>
                         {mostrarParcelas && (
@@ -1674,6 +1955,7 @@ export default function App() {
     custo: number;
     estoque: number;
     fornecedorId: number | null;
+    tamanhos?: TamanhoEstoque[];
   }) => {
     const resultado = await adicionarProdutos(dados);
     if (resultado.message && !resultado.id) {
@@ -1682,15 +1964,23 @@ export default function App() {
     await carregarDados();
   };
 
-  const handleEditarProduto = async (id: number, dados: {
-    nome: string;
-    categoria: string;
-    preco: number;
-    custo: number;
-    estoque: number;
-  }) => {
+  const handleEditarProduto = async (
+    id: number,
+    dados: DadosEdicaoProduto,
+    tamanhos?: EdicaoTamanhos
+  ) => {
+    // Tamanhos primeiro: o servidor recalcula o estoque total a cada alteração.
+    // Depois os dados do produto (sem "estoque" quando o produto usa tamanhos).
+    if (tamanhos) {
+      for (const t of tamanhos.definir) {
+        await definirTamanho(id, t.tamanho, t.quantidade);
+      }
+      for (const t of tamanhos.remover) {
+        await removerTamanho(id, t);
+      }
+    }
     await atualizarProduto(id, dados);
-    setProdutos((prev) => prev.map((p) => (p.id === id ? { ...p, ...dados } : p)));
+    await carregarDados();
   };
 
   const handleExcluirProduto = async (id: number) => {
@@ -1702,6 +1992,7 @@ export default function App() {
     produtoId: number;
     clienteId: number;
     quantidade: number;
+    tamanho?: string;
     valorVenda: number;
     data: string;
     parcelas: number;

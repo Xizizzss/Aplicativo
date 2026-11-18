@@ -11,11 +11,37 @@ app.use(express.json());
 async function iniciarServidor() {
   const db = await createConnection();
 
+  // Mantém produtos.estoque = soma das quantidades de todos os tamanhos.
+  // Assim as telas que já usam "estoque" continuam funcionando.
+  async function recalcularEstoque(produtoId: number | string) {
+    await db.query(
+      `UPDATE produtos
+       SET estoque = (SELECT COALESCE(SUM(quantidade), 0)
+                      FROM produto_tamanhos WHERE produto_id = ?)
+       WHERE id = ?`,
+      [produtoId, produtoId]
+    );
+  }
+
+  // Normaliza o tamanho (" g " -> "G")
+  const normalizarTamanho = (t: any) => String(t ?? "").trim().toUpperCase();
+
   // ────────────── PRODUTOS ──────────────
 
   // CREATE
+  // Aceita opcionalmente "tamanhos": [{ tamanho: "P", quantidade: 3 }, ...]
+  // Se vier "tamanhos", o estoque do produto é a soma deles.
   app.post("/produtos", async (req, res) => {
-    const { nome, categoria, preco, custo, estoque, fornecedorId } = req.body;
+    const { nome, categoria, preco, custo, fornecedorId } = req.body;
+    const tamanhos: { tamanho: string; quantidade: number }[] = Array.isArray(req.body.tamanhos)
+      ? req.body.tamanhos
+      : [];
+    const temTamanhos = tamanhos.length > 0;
+
+    const estoque = temTamanhos
+      ? tamanhos.reduce((soma, t) => soma + (Number(t.quantidade) || 0), 0)
+      : req.body.estoque;
+
     if (!nome || !categoria || preco == null || custo == null || estoque == null) {
       return res.status(400).json({ message: "Campos obrigatórios não preenchidos!" });
     }
@@ -24,6 +50,20 @@ async function iniciarServidor() {
         "INSERT INTO produtos (nome, categoria, preco, custo, estoque, vendidos, fornecedorId) VALUES (?, ?, ?, ?, ?, 0, ?)",
         [nome, categoria, preco, custo, estoque, fornecedorId ?? null]
       );
+
+      for (const t of tamanhos) {
+        const tam = normalizarTamanho(t.tamanho);
+        const qtd = Number(t.quantidade) || 0;
+        if (!tam || qtd < 0) continue;
+        await db.query(
+          `INSERT INTO produto_tamanhos (produto_id, tamanho, quantidade)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE quantidade = VALUES(quantidade)`,
+          [result.insertId, tam, qtd]
+        );
+      }
+      if (temTamanhos) await recalcularEstoque(result.insertId);
+
       res.status(201).json({ id: result.insertId });
     } catch (err) {
       console.error(err);
@@ -31,10 +71,14 @@ async function iniciarServidor() {
     }
   });
 
-  // READ (todos, já com nome do fornecedor)
+  // READ (todos, já com nome do fornecedor e resumo dos tamanhos, ex.: "P:3,M:5,G:2")
   app.get("/produtos", async (req, res) => {
     const [rows] = await db.query(`
-      SELECT p.*, f.nome AS fornecedorNome
+      SELECT p.*, f.nome AS fornecedorNome,
+        (SELECT GROUP_CONCAT(CONCAT(t.tamanho, ':', t.quantidade)
+                ORDER BY FIELD(t.tamanho, 'PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'), t.tamanho
+                SEPARATOR ',')
+         FROM produto_tamanhos t WHERE t.produto_id = p.id) AS tamanhosResumo
       FROM produtos p
       LEFT JOIN fornecedores f ON f.id = p.fornecedorId
       ORDER BY p.nome
@@ -51,7 +95,14 @@ async function iniciarServidor() {
       WHERE p.id = ?
     `, [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ message: "Produto não encontrado." });
-    res.json(rows[0]);
+
+    const [tamanhos] = await db.query(
+      `SELECT tamanho, quantidade FROM produto_tamanhos
+       WHERE produto_id = ?
+       ORDER BY FIELD(tamanho, 'PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'), tamanho`,
+      [req.params.id]
+    );
+    res.json({ ...rows[0], tamanhos });
   });
 
   // UPDATE
@@ -84,6 +135,69 @@ async function iniciarServidor() {
       }
       console.error(err);
       res.status(500).json({ message: "Erro ao excluir produto." });
+    }
+  });
+
+  // ────────────── TAMANHOS DO PRODUTO ──────────────
+
+  // listar o estoque por tamanho de um produto
+  app.get("/produtos/:id/tamanhos", async (req, res) => {
+    try {
+      const [rows] = await db.query(
+        `SELECT tamanho, quantidade FROM produto_tamanhos
+         WHERE produto_id = ?
+         ORDER BY FIELD(tamanho, 'PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'), tamanho`,
+        [req.params.id]
+      );
+      res.json(rows);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erro ao buscar tamanhos." });
+    }
+  });
+
+  // definir a quantidade de um tamanho (cria ou atualiza)
+  app.put("/produtos/:id/tamanhos", async (req, res) => {
+    const tamanho = normalizarTamanho(req.body.tamanho);
+    const quantidade = Number(req.body.quantidade);
+
+    if (!tamanho) {
+      return res.status(400).json({ message: "Informe o tamanho." });
+    }
+    if (!Number.isInteger(quantidade) || quantidade < 0) {
+      return res.status(400).json({ message: "Quantidade deve ser um número inteiro maior ou igual a 0." });
+    }
+
+    try {
+      const [prod]: any = await db.query("SELECT id FROM produtos WHERE id = ?", [req.params.id]);
+      if (prod.length === 0) return res.status(404).json({ message: "Produto não encontrado." });
+
+      await db.query(
+        `INSERT INTO produto_tamanhos (produto_id, tamanho, quantidade)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE quantidade = VALUES(quantidade)`,
+        [req.params.id, tamanho, quantidade]
+      );
+      await recalcularEstoque(req.params.id);
+      res.json({ message: "Tamanho atualizado." });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erro ao salvar tamanho." });
+    }
+  });
+
+  // remover um tamanho do produto
+  app.delete("/produtos/:id/tamanhos/:tamanho", async (req, res) => {
+    try {
+      await db.query(
+        "DELETE FROM produto_tamanhos WHERE produto_id = ? AND tamanho = ?",
+        [req.params.id, normalizarTamanho(req.params.tamanho)]
+      );
+      await recalcularEstoque(req.params.id);
+      res.json({ message: "Tamanho removido." });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Erro ao remover tamanho." });
     }
   });
 
@@ -224,7 +338,9 @@ async function iniciarServidor() {
 
   // ────────────── VENDAS ──────────────
 
-  // CREATE (verifica estoque, registra parcelas e o histórico das já pagas)
+  // CREATE (verifica estoque do tamanho, registra parcelas e o histórico das já pagas)
+  // Produtos que têm tamanhos cadastrados exigem o campo "tamanho" na venda.
+  // Produtos antigos (sem tamanhos) continuam funcionando como antes.
   app.post("/vendas", async (req, res) => {
     const { produtoId, clienteId, quantidade, valorVenda, data, status } = req.body;
     if (!produtoId || !clienteId || !quantidade || valorVenda == null || !data) {
@@ -247,14 +363,41 @@ async function iniciarServidor() {
       if (produtoRows.length === 0) {
         return res.status(404).json({ message: "Produto não encontrado." });
       }
-      if (produtoRows[0].estoque < quantidade) {
+
+      // O produto usa divisão por tamanho?
+      const [tamRows]: any = await db.query(
+        "SELECT tamanho, quantidade FROM produto_tamanhos WHERE produto_id = ?",
+        [produtoId]
+      );
+      const usaTamanhos = tamRows.length > 0;
+      const tamanho = normalizarTamanho(req.body.tamanho);
+
+      if (usaTamanhos) {
+        if (!tamanho) {
+          return res.status(400).json({ message: "Selecione o tamanho da peça." });
+        }
+        const linha = tamRows.find((t: any) => t.tamanho === tamanho);
+        if (!linha) {
+          return res.status(400).json({ message: `Este produto não tem o tamanho ${tamanho}.` });
+        }
+        if (linha.quantidade < quantidade) {
+          return res.status(400).json({ message: `Estoque insuficiente no tamanho ${tamanho}.` });
+        }
+      } else if (produtoRows[0].estoque < quantidade) {
         return res.status(400).json({ message: "Estoque insuficiente para essa venda." });
       }
 
       const [result]: any = await db.query(
-        "INSERT INTO vendas (produtoId, clienteId, quantidade, valorVenda, data, status, parcelas, parcelasPagas) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [produtoId, clienteId, quantidade, valorVenda, data, statusFinal, parcelas, parcelasPagas]
+        "INSERT INTO vendas (produtoId, clienteId, quantidade, valorVenda, data, status, parcelas, parcelasPagas, tamanho) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [produtoId, clienteId, quantidade, valorVenda, data, statusFinal, parcelas, parcelasPagas, usaTamanhos ? tamanho : null]
       );
+
+      if (usaTamanhos) {
+        await db.query(
+          "UPDATE produto_tamanhos SET quantidade = quantidade - ? WHERE produto_id = ? AND tamanho = ?",
+          [quantidade, produtoId, tamanho]
+        );
+      }
 
       await db.query(
         "UPDATE produtos SET estoque = estoque - ?, vendidos = vendidos + ? WHERE id = ?",
@@ -282,7 +425,7 @@ async function iniciarServidor() {
       SELECT
         v.id, v.quantidade, v.valorVenda,
         DATE_FORMAT(v.data, '%d/%m/%Y') AS data,
-        v.status, v.parcelas, v.parcelasPagas,
+        v.status, v.parcelas, v.parcelasPagas, v.tamanho,
         c.nome AS cliente,
         p.nome AS produto,
         ROUND(v.valorVenda / v.parcelas, 2) AS valorParcela,

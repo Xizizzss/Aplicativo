@@ -4,6 +4,7 @@ export interface Venda {
   id: number;
   cliente: string;
   produto: string;
+  tamanho?: string | null;
   quantidade: number;
   valorVenda: number;
   data: string;
@@ -43,6 +44,7 @@ export async function registrarVenda(dados: {
   produtoId: number;
   clienteId: number;
   quantidade: number;
+  tamanho?: string;
   valorVenda: number;
   data: string;
   status?: string;
