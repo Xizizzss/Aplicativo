@@ -570,9 +570,13 @@ async function iniciarServidor() {
     }
   });
 
-  app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, () => {
+      console.log(`Servidor rodando na porta ${PORT}`);
+    });
+  }
 }
 
 iniciarServidor();
+
+export default app;
