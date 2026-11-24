@@ -8,6 +8,14 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
+// Na Vercel as rotas chegam com o prefixo /api; aqui ele é removido
+app.use((req, _res, next) => {
+  if (req.url === "/api" || req.url.startsWith("/api/")) {
+    req.url = req.url.slice(4) || "/";
+  }
+  next();
+});
+
 async function iniciarServidor() {
   const db = await createConnection();
 
